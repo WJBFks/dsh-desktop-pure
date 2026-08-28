@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+*.log
+
+# local build/runtime caches
+.electron-cache/
+.npm-cache/
+
+# local shortcut & OS artifacts (not part of the repo)
+*.lnk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>titlebar</title>
+  <style>
+    /* Theme: follows prefers-color-scheme, which nativeTheme.themeSource
+       controls (system / light / dark). Variables make the two skins trivial. */
+    :root {
+      --tb-bg: #111827;
+      --tb-fg: #d1d5db;
+      --tb-fg-dim: #9ca3af;
+      --tb-border: #1f2937;
+      --tb-hover: #1f2937;
+      --tb-hover-fg: #f3f4f6;
+      --tb-active: #273449;
+      --wc-close-hover: #e81123;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --tb-bg: #f3f4f6;
+        --tb-fg: #374151;
+        --tb-fg-dim: #6b7280;
+        --tb-border: #e5e7eb;
+        --tb-hover: #e5e7eb;
+        --tb-hover-fg: #111827;
+        --tb-active: #d1d5db;
+        --wc-close-hover: #e81123;
+      }
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: var(--tb-bg);
+      color: var(--tb-fg);
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      font-size: 12px;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #titlebar {
+      position: relative;
+      display: flex;
+      align-items: center;
+      /* Fixed row height; must match TITLEBAR_HEIGHT in main.js. As a
+         WebContentsView this view is only 40px tall, so the row fills it. */
+      height: 40px;
+      background: var(--tb-bg);
+      border-bottom: 1px solid var(--tb-border);
+      -webkit-app-region: drag;
+    }
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    /* Left: menu buttons (文件 / 视图 / 服务器) */
+    #menubtns {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding-left: 8px;
+    }
+    /* On macOS the native traffic-light buttons occupy the left ~78px, so push
+       the menu buttons to the right of them. */
+    body.platform-darwin #menubtns {
+      left: 78px;
+    }
+    #menubtns button {
+      background: transparent;
+      border: 0;
+      color: var(--tb-fg);
+      font-size: 12px;
+      font-family: inherit;
+      padding: 0 10px;
+      height: 28px;
+      cursor: default;
+      border-radius: 4px;
+    }
+    #menubtns button:hover {
+      background: var(--tb-hover);
+      color: var(--tb-hover-fg);
+    }
+    #menubtns button:active {
+      background: var(--tb-active);
+    }
+
+    /* Center: connection status, pinned to the horizontal middle */
+    #status {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      height: 100%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: calc(100% - 380px);
+      min-width: 0;
+    }
+    #dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      background: #f59e0b;
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
+    }
+    #dot.online {
+      background: #22c55e;
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+    }
+    #dot.starting {
+      background: #f59e0b;
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
+    }
+    #dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+    }
+    #label {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--tb-fg);
+    }
+
+    /* Right: window controls (Windows / Linux only; macOS uses native traffic
+       lights, so this group is hidden there). */
+    #wincontrols {
+      position: absolute;
+      right: 0;
+      top: 0;
+      height: 100%;
+      display: flex;
+      align-items: stretch;
+    }
+    body.platform-darwin #wincontrols {
+      display: none;
+    }
+    #wincontrols button {
+      background: transparent;
+      border: 0;
+      width: 46px;
+      height: 100%;
+      cursor: default;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--tb-fg-dim);
+    }
+    #wincontrols button:hover {
+      background: var(--tb-hover);
+      color: var(--tb-hover-fg);
+    }
+    #wincontrols button.close:hover {
+      background: var(--wc-close-hover);
+      color: #fff;
+    }
+    /* The "open in browser" button is a bit narrower than the window controls. */
+    #wincontrols button[data-ctl="open-browser"] {
+      width: 40px;
+    }
+    .wc-sep {
+      width: 1px;
+      height: 16px;
+      align-self: center;
+      margin: 0 3px;
+      background: var(--tb-border);
+      flex: 0 0 auto;
+    }
+    #wincontrols svg {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="titlebar">
+    <nav id="menubtns" class="no-drag">
+      <button data-menu="file">文件</button>
+      <button data-menu="view">视图</button>
+      <button data-menu="server">服务器</button>
+    </nav>
+    <div id="status" class="no-drag">
+      <span id="dot" class="starting"></span>
+      <span id="label">启动中…</span>
+    </div>
+    <div id="wincontrols" class="no-drag">
+      <button data-ctl="open-browser" title="在浏览器中打开" aria-label="在浏览器中打开">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+        </svg>
+      </button>
+      <div class="wc-sep"></div>
+      <button data-ctl="minimize" title="最小化" aria-label="最小化">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1" />
+        </svg>
+      </button>
+      <button data-ctl="maximize" title="最大化" aria-label="最大化" id="btnMax">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" />
+        </svg>
+      </button>
+      <button data-ctl="close" title="关闭" aria-label="关闭" class="close">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" stroke-width="1" />
+          <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" stroke-width="1" />
+        </svg>
+      </button>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var dot = document.getElementById('dot');
+      var label = document.getElementById('label');
+      var btnMax = document.getElementById('btnMax');
+      var MAX_SVG =
+        '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
+      var RESTORE_SVG =
+        '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="2" y="2" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/><path d="M2 2 L2 1 L9 1 L9 8 L8 8" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
+
+      function apply(status) {
+        if (!status || typeof status !== 'object') return;
+        var state = status.state || 'offline';
+        dot.className = state;
+        if (state === 'online') {
+          // Reused (not spawned by the shell) → append a marker at the end.
+          var reused = status.spawned === false ? '（已复用）' : '';
+          label.textContent = '已连接' + (status.url ? ' · ' + status.url : '') + reused;
+        } else if (state === 'starting') {
+          label.textContent = '启动中…';
+        } else {
+          label.textContent = '已断开' + (status.reason ? '（' + status.reason + '）' : '');
+        }
+      }
+
+      function applyMaximized(maximized) {
+        btnMax.innerHTML = maximized ? RESTORE_SVG : MAX_SVG;
+        btnMax.title = maximized ? '还原' : '最大化';
+      }
+
+      var api = window.dshTitlebar;
+
+      // Tag the body with the platform so CSS can adapt (e.g. hide the drawn
+      // window controls on macOS, where native traffic lights are used).
+      if (api && api.platform) {
+        document.body.classList.add('platform-' + api.platform);
+      }
+
+      if (api) {
+        api.subscribe(apply);
+        api.onMaximized(applyMaximized);
+      }
+
+      // Menu buttons: click toggles, mouseenter switches (while one is open).
+      // (mouseenter does not bubble, so bind it on each button directly.)
+      document.getElementById('menubtns').addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-menu]');
+        if (!b || !api) return;
+        e.stopPropagation();
+        api.toggleMenu(b.getAttribute('data-menu'), b.getBoundingClientRect().left);
+      });
+      document.querySelectorAll('#menubtns button[data-menu]').forEach(function (b) {
+        b.addEventListener('mouseenter', function () {
+          if (api) api.hoverMenu(b.getAttribute('data-menu'), b.getBoundingClientRect().left);
+        });
+      });
+
+      // Window control buttons -> minimize / maximize / close.
+      document.getElementById('wincontrols').addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-ctl]');
+        if (b && api) {
+          e.stopPropagation();
+          api.windowControl(b.getAttribute('data-ctl'));
+        }
+      });
+
+      // Click on the bare title bar (not a button) -> close any open menu.
+      document.getElementById('titlebar').addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
+        if (api) api.closeMenu();
+      });
+
+      // Double-click the bare title bar area -> toggle maximize (common habit).
+      document.getElementById('titlebar').addEventListener('dblclick', function (e) {
+        if (e.target.closest('button')) return;
+        if (api) api.windowControl('maximize');
+      });
+    })();
+  </script>
+</body>
+</html>

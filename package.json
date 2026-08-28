@@ -1,0 +1,64 @@
+{
+  "name": "dsh-desktop-pure",
+  "productName": "DSH Desktop Pure",
+  "version": "0.1.0",
+  "description": "Zero-intrusion pure WebUI desktop shell for DeepSeek Harness (dsh web): read-only, Electron-encapsulated, never modifies DSH source code, resources or config.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --verbose",
+    "selftest": "node tools/selftest-port.js"
+  },
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "electron",
+    "desktop",
+    "webui",
+    "shell",
+    "wrapper",
+    "cross-platform"
+  ],
+  "author": "WJBFks",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.15.3",
+    "sharp": "^0.35.4"
+  },
+  "build": {
+    "appId": "com.deepseek-ai.dsh-desktop-pure",
+    "productName": "DSH Desktop Pure",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "port-probe.js",
+      "titlebar.html",
+      "menu.html",
+      "loading.html",
+      "preload.js",
+      "titlepreload.js",
+      "menupreload.js"
+    ],
+    "asar": true,
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DSH Desktop Pure"
+    }
+  }
+}

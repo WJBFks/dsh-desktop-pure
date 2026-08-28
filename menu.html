@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>menu</title>
+  <style>
+    /* Theme: follows prefers-color-scheme (driven by nativeTheme.themeSource). */
+    :root {
+      --menu-bg: #1f2937;
+      --menu-fg: #e5e7eb;
+      --menu-fg-dim: #9ca3af;
+      --menu-hover: #2d3a4f;
+      --menu-radio: #60a5fa;
+      --menu-sep: #374151;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --menu-bg: #ffffff;
+        --menu-fg: #1f2937;
+        --menu-fg-dim: #6b7280;
+        --menu-hover: #eef2ff;
+        --menu-radio: #2563eb;
+        --menu-sep: #e5e7eb;
+      }
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      /* Transparent: only #menu is painted; the rest shows the harness below. */
+      background: transparent;
+      color: var(--menu-fg);
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      font-size: 12px;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #menu {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      background: var(--menu-bg);
+      /* Top/bottom padding must equal MENU_PAD_V in main.js; item heights must
+         equal MENU_ITEM_H / MENU_SEP_H so the view bounds match the content. */
+      padding: 8px 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .dd-item {
+      display: flex;
+      align-items: center;
+      height: 30px;
+      padding: 0 14px 0 10px;
+      box-sizing: border-box;
+      cursor: default;
+      color: var(--menu-fg);
+      white-space: nowrap;
+    }
+    .dd-item:hover {
+      background: var(--menu-hover);
+    }
+    .dd-item.disabled {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+    .dd-prefix {
+      width: 16px;
+      flex: 0 0 auto;
+      text-align: center;
+      color: var(--menu-radio);
+      font-size: 10px;
+    }
+    .dd-label {
+      flex: 1 1 auto;
+      margin-left: 2px;
+    }
+    .dd-acc {
+      flex: 0 0 auto;
+      margin-left: 24px;
+      color: var(--menu-fg-dim);
+    }
+    .dd-sep {
+      height: 9px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+    }
+    .dd-sep::before {
+      content: "";
+      width: 100%;
+      height: 1px;
+      background: var(--menu-sep);
+    }
+  </style>
+</head>
+<body>
+  <div id="menu"></div>
+  <script>
+    (function () {
+      var menuEl = document.getElementById('menu');
+      var api = window.dshMenu;
+
+      function clear() {
+        menuEl.innerHTML = '';
+      }
+
+      function render(data) {
+        if (!data || !Array.isArray(data.items)) return;
+        clear();
+        data.items.forEach(function (it) {
+          if (!it) return;
+          if (it.type === 'separator') {
+            var sep = document.createElement('div');
+            sep.className = 'dd-sep';
+            menuEl.appendChild(sep);
+            return;
+          }
+          var row = document.createElement('div');
+          row.className = 'dd-item' + (it.enabled === false ? ' disabled' : '');
+
+          var prefix = document.createElement('span');
+          prefix.className = 'dd-prefix';
+          if (it.type === 'radio') prefix.textContent = it.checked ? '●' : '';
+          row.appendChild(prefix);
+
+          var lab = document.createElement('span');
+          lab.className = 'dd-label';
+          lab.textContent = it.label || '';
+          row.appendChild(lab);
+
+          if (it.accelerator) {
+            var acc = document.createElement('span');
+            acc.className = 'dd-acc';
+            acc.textContent = it.accelerator;
+            row.appendChild(acc);
+          }
+
+          if (it.enabled !== false && it.id) {
+            row.addEventListener('click', function (e) {
+              e.stopPropagation();
+              if (api) api.action(it.id);
+            });
+          }
+          menuEl.appendChild(row);
+        });
+      }
+
+      if (api) {
+        api.onShow(render);
+        api.onHide(clear);
+      }
+
+      // Click on the menu's own padding (not an item) -> dismiss.
+      menuEl.addEventListener('click', function (e) {
+        if (!e.target.closest('.dd-item') && api) api.close();
+      });
+
+      // Escape dismisses (when this view has focus).
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && api) api.close();
+      });
+    })();
+  </script>
+</body>
+</html>

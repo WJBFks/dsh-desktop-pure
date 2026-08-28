@@ -1,0 +1,1008 @@
+'use strict';
+
+/**
+ * DSH Desktop Pure — thin Electron shell for the DeepSeek Harness Web GUI.
+ *
+ * Route A: this app contains NO DSH code. It is a hardened Chromium window
+ * that either reuses an already-running `dsh web` server (e.g. the harness
+ * GUI at http://127.0.0.1:3080) or spawns one on demand, then loads its URL.
+ * The shell only READS from DSH (HTTP probes, child stdout, spawned-process
+ * management); it never modifies DSH's own files or DOM.
+ *
+ * Cross-platform: targets Windows, macOS and Linux.
+ *   - Windows / Linux: frameless window; the shell draws the window controls
+ *     (minimize / maximize / close) on the right of the title bar.
+ *   - macOS: titleBarStyle 'hidden' keeps the native traffic-light buttons on
+ *     the left; the shell does NOT draw window controls there.
+ *   - Process / port helpers already branch on process.platform
+ *     (taskkill vs SIGTERM, netstat vs lsof, tasklist vs ps).
+ *
+ * Port policy (single port, no silent drift): the shell works on ONE port
+ * (default 3080). If a harness already serves it → reuse. If the port is free
+ * → spawn `dsh web` on it. If a foreign process holds it → show a dialog
+ * naming the occupying process and its PID (never fall back to the next port).
+ *
+ * Top chrome: a one-row title bar holding the 文件 / 视图 / 服务器 menu
+ * buttons, the connection status (centered), and the window controls. Each
+ * menu button opens a shell-drawn dropdown (a WebContentsView stacked above the
+ * harness) fixed directly beneath the button; while a menu is open, hovering
+ * another top button switches to its menu. The dropdown is the shell's own
+ * menu.html — it never touches the harness DOM.
+ *
+ * Theme: nativeTheme.themeSource (system / light / dark, persisted in
+ * userData) drives Chromium's prefers-color-scheme, so the title bar and menus
+ * re-skin via CSS media queries and — if the harness page opts in — it follows.
+ * The shell never injects CSS into the harness (Route A).
+ *
+ * Version-drift safety: every place the shell READS DSH content (page markers,
+ * stdout URL line) degrades to a warning instead of crashing.
+ */
+
+const {
+  app,
+  BaseWindow,
+  WebContentsView,
+  Menu,
+  Tray,
+  dialog,
+  shell,
+  ipcMain,
+  nativeTheme
+} = require('electron');
+const { spawn, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const { probe, probeWithGrace, findPortOwner } = require('./port-probe.js');
+
+const DEFAULT_PORT = 3080;
+const READY_TIMEOUT_MS = 120_000;
+const POLL_INTERVAL_MS = 300;
+const WINDOW_TITLE = 'DSH Desktop Pure';
+const TITLEBAR_HEIGHT = 40;
+const MENU_WIDTH = 224;
+const MENU_ITEM_H = 30;
+const MENU_SEP_H = 9;
+const MENU_PAD_V = 8;
+const LIGHT_BG = '#f3f4f6';
+const DARK_BG = '#111827';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ---------------------------------------------------------------------------
+// Configuration (--port=, --url=, --dsh=, --verbose + DSH_ELECTRON_* env)
+// ---------------------------------------------------------------------------
+
+function readFlag(name) {
+  const eqPrefix = `--${name}=`;
+  const eqHit = process.argv.find((arg) => arg.startsWith(eqPrefix));
+  if (eqHit !== undefined) return eqHit.slice(eqPrefix.length);
+  const idx = process.argv.indexOf(`--${name}`);
+  if (idx !== -1 && idx + 1 < process.argv.length) return process.argv[idx + 1];
+  return undefined;
+}
+
+function resolveConfig() {
+  const portRaw = readFlag('port') ?? process.env.DSH_ELECTRON_PORT;
+  const parsed = Number(portRaw);
+  const port =
+    portRaw !== undefined && Number.isInteger(parsed) && parsed >= 0 && parsed <= 65535
+      ? parsed
+      : DEFAULT_PORT;
+  return {
+    port,
+    urlOverride: readFlag('url') ?? (process.env.DSH_ELECTRON_URL || undefined),
+    dshBin: readFlag('dsh') ?? (process.env.DSH_ELECTRON_DSH || 'dsh'),
+    verbose: process.argv.includes('--verbose') || process.env.DSH_ELECTRON_VERBOSE === '1'
+  };
+}
+
+// ---------------------------------------------------------------------------
+// dsh web process management
+// ---------------------------------------------------------------------------
+
+/**
+ * Spawn `dsh web --no-open --port <port>`.
+ * On Windows, npm's global bin is a `.cmd` shim, so the command is built for
+ * cmd.exe. Each token is passed as its own argv element: Node quotes each one
+ * individually and cmd's /s switch strips the outer pair, so paths containing
+ * spaces or backslashes survive. `--no-open` stops dsh from handing the URL to
+ * the system browser.
+ */
+function spawnDsh(dshBin, port) {
+  const args = ['web', '--no-open', '--port', String(port)];
+  const stdio = ['ignore', 'pipe', 'pipe'];
+  if (process.platform === 'win32') {
+    return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', dshBin, ...args], {
+      stdio,
+      windowsHide: true
+    });
+  }
+  return spawn(dshBin, args, { stdio });
+}
+
+/**
+ * Forward child output (verbose only) and capture the
+ * `dsh web: http://…` URL line — this is how `--port 0` (OS-assigned)
+ * instances are discovered. If a future dsh release changes that line, the
+ * fixed-port path still works; only OS-assigned discovery degrades, and it
+ * degrades to a clear "not ready" timeout rather than a crash.
+ */
+function pipeChildOutput(child, verbose) {
+  let discoveredUrl = null;
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    if (verbose) process.stdout.write(chunk);
+    try {
+      const match = /dsh web:\s*(https?:\/\/\S+)/.exec(chunk);
+      if (match !== null) discoveredUrl = match[1];
+    } catch {
+      /* keep whatever was last discovered; never let parsing crash the shell */
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    if (verbose) process.stderr.write(chunk);
+  });
+  return { discoveredUrl: () => discoveredUrl };
+}
+
+/** Kill the spawned tree (taskkill /T on Windows; SIGTERM elsewhere). */
+function killChild(child) {
+  if (child === null || child.killed) return;
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      return;
+    }
+    child.kill('SIGTERM');
+  } catch {
+    /* nothing left to do */
+  }
+}
+
+/** Force-kill a PID by platform (taskkill /F on Windows; SIGKILL elsewhere). */
+function forceKillPid(pid) {
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } else {
+      process.kill(pid, 'SIGKILL');
+    }
+  } catch {
+    /* ignore — the port may already be free */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Server readiness
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll until the harness serves on the fixed (or dsh-reported) URL. Because we
+ * just spawned this child ourselves, a plain HTTP 200 is enough to call it
+ * ready (assumeHarness) — no dependence on DSH's page markup surviving.
+ */
+async function waitForServer(fixedUrl, urlProbe, child, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const discovered = urlProbe();
+    if (discovered !== null && (await probe(discovered, { assumeHarness: true })) === 'harness') {
+      return discovered;
+    }
+    if (fixedUrl !== null && (await probe(fixedUrl, { assumeHarness: true })) === 'harness') {
+      return fixedUrl;
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`dsh web exited early (code ${String(child.exitCode)})`);
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Port policy: reuse → spawn → conflict dialog (never the next port)
+// ---------------------------------------------------------------------------
+
+/** Ask the user how to proceed when a foreign process holds the port. */
+function showPortConflictDialog(port, owner) {
+  const who = owner
+    ? `占用进程：${owner.name}\nPID：${owner.pid}`
+    : '已确认端口被占用，但未能识别出具体进程。';
+  let tip;
+  if (process.platform === 'win32') {
+    tip = owner
+      ? `可在终端执行：taskkill /PID ${owner.pid} /F`
+      : `可执行：netstat -ano | findstr :${port}  查看占用进程。`;
+  } else {
+    tip = owner
+      ? `可在终端执行：kill ${owner.pid}`
+      : `可执行：lsof -i :${port}  查看占用进程。`;
+  }
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: '端口被占用',
+    message: `端口 ${port} 已被其他进程占用，无法启动 dsh web：`,
+    detail: `${who}\n\n${tip}\n\n结束该进程后点击「重试」，或关闭本程序。`,
+    buttons: ['重试', '关闭'],
+    defaultId: 1,
+    cancelId: 1
+  });
+  return choice === 0; // true → retry
+}
+
+/** Spawn `dsh web --no-open --port <port>` and wait until it serves. */
+async function spawnOnPort(cfg, port) {
+  const fixedUrl = port === 0 ? null : `http://127.0.0.1:${port}`;
+  let spawnError = null;
+  const child = spawnDsh(cfg.dshBin, port);
+  child.on('error', (err) => {
+    spawnError = err;
+  });
+  const urlSource = pipeChildOutput(child, cfg.verbose);
+  try {
+    const readyUrl = await waitForServer(fixedUrl, urlSource.discoveredUrl, child, READY_TIMEOUT_MS);
+    if (readyUrl === null) {
+      throw new Error(
+        `dsh web 在 ${fixedUrl ?? 'OS 分配端口'} 上未能在 ${READY_TIMEOUT_MS / 1000} 秒内就绪`
+      );
+    }
+    return { url: readyUrl, child };
+  } catch (err) {
+    killChild(child);
+    if (spawnError !== null && spawnError.code === 'ENOENT') {
+      throw new Error(
+        `无法启动 '${cfg.dshBin}'（ENOENT）。\n` +
+          '@deepseek-ai/dsh 是否已安装、且其 bin 目录在 PATH 上？\n' +
+          '  npm install -g @deepseek-ai/dsh\n' +
+          '或通过 DSH_ELECTRON_DSH 指定 dsh 的完整路径。'
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Resolve the server to load:
+ *   1. a harness already serves the port → reuse it;
+ *   2. the port is free (no listener)    → spawn dsh web on it;
+ *   3. a foreign process holds the port  → dialog with process name + PID,
+ *      then retry or quit — never fall back to the next port.
+ * Reuse detection is STRICT (needs a DSH structural marker) so a foreign HTTP
+ * server is never mistaken for the harness.
+ */
+async function resolveServer(cfg) {
+  const port = cfg.port;
+  // OS-assigned port: the URL only appears in dsh stdout; probe it directly.
+  if (port === 0) return spawnOnPort(cfg, 0);
+  const url = `http://127.0.0.1:${port}`;
+  for (;;) {
+    const status = await probeWithGrace(url);
+    if (status === 'harness') return { url, child: null };
+    if (status === 'free') return spawnOnPort(cfg, port);
+    const owner = findPortOwner(port);
+    if (!showPortConflictDialog(port, owner)) app.exit(0);
+    // else: loop back and probe again
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Window helpers
+// ---------------------------------------------------------------------------
+
+/** Only loopback http(s) URLs are allowed inside the window. */
+function isLoopbackHttp(raw) {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    return (
+      host === 'localhost' ||
+      host === '::1' ||
+      host === '127.0.0.1' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function openExternalSafely(raw) {
+  try {
+    await shell.openExternal(raw);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Theme (light / dark / follow system; persisted in userData)
+// ---------------------------------------------------------------------------
+
+function themeFile() {
+  return path.join(app.getPath('userData'), 'theme.json');
+}
+
+function loadTheme() {
+  try {
+    const raw = fs.readFileSync(themeFile(), 'utf8');
+    const obj = JSON.parse(raw);
+    if (obj && ['system', 'light', 'dark'].includes(obj.themeSource)) return obj.themeSource;
+  } catch {
+    /* missing/invalid → follow the system */
+  }
+  return 'system';
+}
+
+function persistTheme(source) {
+  try {
+    fs.writeFileSync(themeFile(), JSON.stringify({ themeSource: source }));
+  } catch {
+    /* best-effort persistence */
+  }
+}
+
+function currentWindowBg() {
+  return nativeTheme.shouldUseLightColors ? LIGHT_BG : DARK_BG;
+}
+
+function setThemeSource(source) {
+  if (!['system', 'light', 'dark'].includes(source)) return;
+  try {
+    nativeTheme.themeSource = source;
+  } catch {
+    return;
+  }
+  persistTheme(source);
+  if (win !== null && !win.isDestroyed()) win.setBackgroundColor(currentWindowBg());
+  // If a menu is open, refresh it so the theme radio group reflects the change.
+  if (openMenu !== null) openMenuAt(openMenu, currentMenuLeft);
+}
+
+// ---------------------------------------------------------------------------
+// Window + view handles (module scope so menu / title bar / lifecycle reach them)
+// ---------------------------------------------------------------------------
+
+let win = null; // BaseWindow
+let harnessView = null; // WebContentsView: the harness page (bottom)
+let titlebarView = null; // WebContentsView: the one-row title bar (middle)
+let menuView = null; // WebContentsView: the dropdown menu (top, transparent)
+let tray = null; // System tray icon (hide-to-tray; server keeps running while hidden)
+let currentStatus = { state: 'starting' };
+let openMenu = null; // 'file' | 'view' | 'server' | null
+let currentMenuLeft = 0; // content-relative x of the open menu's button
+
+/** Push a status to the title bar renderer. */
+function setStatus(next) {
+  currentStatus = next;
+  if (titlebarView !== null && !titlebarView.webContents.isDestroyed()) {
+    titlebarView.webContents.send('dsh:status', currentStatus);
+  }
+  // If a menu is open, refresh it (enabled states may change with the status).
+  if (openMenu !== null) openMenuAt(openMenu, currentMenuLeft);
+}
+
+/** Push maximize/restore state to the title bar (toggles the middle button). */
+function pushMaximized(maximized) {
+  if (titlebarView !== null && !titlebarView.webContents.isDestroyed()) {
+    titlebarView.webContents.send('titlebar:maximized', Boolean(maximized));
+  }
+}
+
+/** Apply the hardening policies to the harness webContents. */
+function hardenWebContents(wc) {
+  wc.setWindowOpenHandler(({ url: target }) => {
+    if (/^https?:/i.test(target) && !isLoopbackHttp(target)) {
+      openExternalSafely(target);
+    }
+    return { action: 'deny' };
+  });
+  // Never let the app navigate away from the local harness.
+  wc.on('will-navigate', (event, target) => {
+    if (!isLoopbackHttp(target)) {
+      event.preventDefault();
+      if (/^https?:/i.test(target)) openExternalSafely(target);
+    }
+  });
+  // No webviews of any kind.
+  wc.on('will-attach-webview', (event) => event.preventDefault());
+}
+
+/** Lays the title bar on top and the harness beneath it (menu is positioned on demand). */
+function layout() {
+  if (win === null || titlebarView === null || harnessView === null) return;
+  const [width, height] = win.getContentSize();
+  titlebarView.setBounds({ x: 0, y: 0, width, height: TITLEBAR_HEIGHT });
+  harnessView.setBounds({ x: 0, y: TITLEBAR_HEIGHT, width, height: Math.max(0, height - TITLEBAR_HEIGHT) });
+}
+
+/** Platform-appropriate window options. */
+function windowOptions() {
+  const base = {
+    width: 1360,
+    height: 860,
+    minWidth: 860,
+    minHeight: 600,
+    title: WINDOW_TITLE,
+    icon: path.join(__dirname, 'build', 'icon-256.png'),
+    backgroundColor: currentWindowBg(),
+    show: true
+  };
+  if (process.platform === 'darwin') {
+    // Keep the native traffic-light buttons; hide only the title text.
+    base.titleBarStyle = 'hidden';
+    base.trafficLightPosition = { x: 14, y: 12 };
+  } else {
+    // Windows / Linux: fully frameless; we draw the window controls.
+    base.frame = false;
+  }
+  return base;
+}
+
+function createWindow() {
+  win = new BaseWindow(windowOptions());
+
+  // Harness page (bottom).
+  harnessView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+
+  // One-row title bar (middle). Its drag region moves the window.
+  titlebarView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'titlepreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+
+  // Dropdown menu (top, transparent; positioned on demand).
+  menuView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'menupreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+  menuView.setBackgroundColor('#00000000'); // fully transparent outside the menu
+
+  // Stacking order: later-added views sit on top.
+  win.contentView.addChildView(harnessView);
+  win.contentView.addChildView(titlebarView);
+  win.contentView.addChildView(menuView);
+  layout();
+  menuView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); // hidden until opened
+  win.on('resize', layout);
+
+  hardenWebContents(harnessView.webContents);
+  // Pin the window title (taskbar / window list) even though the page sets its own <title>.
+  harnessView.webContents.on('page-title-updated', (event) => {
+    event.preventDefault();
+    win.setTitle(WINDOW_TITLE);
+  });
+
+  titlebarView.webContents.loadFile(path.join(__dirname, 'titlebar.html'));
+  titlebarView.webContents.once('did-finish-load', () => {
+    if (titlebarView === null || titlebarView.webContents.isDestroyed()) return;
+    titlebarView.webContents.send('dsh:status', currentStatus);
+    pushMaximized(win !== null && win.isMaximized());
+  });
+
+  menuView.webContents.loadFile(path.join(__dirname, 'menu.html'));
+
+  win.on('maximize', () => pushMaximized(true));
+  win.on('unmaximize', () => pushMaximized(false));
+
+  win.on('close', (event) => {
+    // Intercept real closes (macOS native red button, taskbar, etc.): hide into
+    // the tray instead of exiting — unless we are truly quitting.
+    if (!quitting && tray !== null) {
+      event.preventDefault();
+      hideToTray();
+    }
+  });
+
+  win.on('closed', () => {
+    win = null;
+    harnessView = null;
+    titlebarView = null;
+    menuView = null;
+    openMenu = null;
+  });
+}
+
+/** Load (or reload) the harness URL into the harness view. */
+function loadMain(url) {
+  if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
+    harnessView.webContents.loadURL(url);
+  }
+}
+
+/** Show the shell's own (theme-aware) loading page in the harness area. */
+function showLoading() {
+  if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
+    harnessView.webContents.loadFile(path.join(__dirname, 'loading.html'));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// System tray (hide-to-tray; the dsh web server keeps running while hidden)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tray icon path. Dark variants are used deliberately: Electron's Tray does NOT
+ * auto-adapt a colored icon to the taskbar/menu-bar color, so we fix on the
+ * dark icon (visible on a light taskbar; the logo is light on a dark square).
+ */
+function trayIconPath() {
+  if (process.platform === 'win32') return path.join(__dirname, 'build', 'icon.ico');
+  return path.join(__dirname, 'build', 'icon-256.png');
+}
+
+/** Reveal and focus the main window (tray click / second-instance / activate). */
+function showWindow() {
+  if (win === null) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/** Hide the main window into the tray (the dsh web server keeps running). */
+function hideToTray() {
+  if (win !== null && !win.isDestroyed()) win.hide();
+}
+
+/** Truly quit (tray "退出" / File→退出). before-quit cleans up the child. */
+function reallyQuit() {
+  quitting = true; // let the 'close' interceptor allow the window to actually close
+  app.quit();
+}
+
+function createTray() {
+  if (tray !== null) return;
+  try {
+    tray = new Tray(trayIconPath());
+  } catch (err) {
+    console.warn('[DSH Desktop Pure] 托盘创建失败：' + err.message);
+    return;
+  }
+  tray.setToolTip(WINDOW_TITLE);
+  const menu = Menu.buildFromTemplate([
+    { label: '打开窗口', click: () => showWindow() },
+    { label: '重启 dsh 服务器', click: () => restartServer() },
+    { type: 'separator' },
+    { label: '退出', click: () => reallyQuit() }
+  ]);
+  tray.setContextMenu(menu);
+  // Left-click reveals the window (Windows/Linux); on macOS the menu takes over.
+  tray.on('click', () => showWindow());
+}
+
+function mainContents() {
+  return harnessView !== null && !harnessView.webContents.isDestroyed() ? harnessView.webContents : null;
+}
+
+// ---------------------------------------------------------------------------
+// Dropdown menus (shell-drawn; fixed position + hover switching)
+// ---------------------------------------------------------------------------
+
+/** Display text for an accelerator, per platform. */
+function accText(acc) {
+  if (process.platform === 'darwin') return acc.replace('CmdOrCtrl+', '⌘');
+  return acc.replace('CmdOrCtrl+', 'Ctrl+');
+}
+
+/** The three menus' items (labels, accelerators, enabled / radio state). */
+function menuItems() {
+  const src = nativeTheme.themeSource;
+  return {
+    file: [
+      { id: 'reload', label: '重新加载', accelerator: accText('CmdOrCtrl+R'), enabled: true },
+      { id: 'reload-cache', label: '强制重新加载', accelerator: accText('CmdOrCtrl+Shift+R'), enabled: true },
+      { type: 'separator' },
+      { id: 'open-external', label: '在系统浏览器中打开', enabled: appState.url !== null },
+      { type: 'separator' },
+      { id: 'hide-to-tray', label: '最小化到托盘', enabled: true },
+      { id: 'quit', label: '退出', accelerator: accText('CmdOrCtrl+Q'), enabled: true }
+    ],
+    view: [
+      { id: 'devtools', label: '开发者工具', accelerator: accText('F12'), enabled: true },
+      { id: 'fullscreen', label: '全屏', accelerator: accText('F11'), enabled: true },
+      { type: 'separator' },
+      { id: 'theme-system', label: '跟随系统', type: 'radio', checked: src === 'system' },
+      { id: 'theme-light', label: '浅色', type: 'radio', checked: src === 'light' },
+      { id: 'theme-dark', label: '深色', type: 'radio', checked: src === 'dark' }
+    ],
+    server: [
+      // Always available: restart rebinds the port whether we spawned dsh web
+      // or reused an existing instance.
+      { id: 'restart', label: '重启 dsh 服务器', enabled: true }
+    ]
+  };
+}
+
+/** Pixel height of a menu (must match menu.html's item/separator/padding sizes). */
+function menuHeight(items) {
+  let h = MENU_PAD_V * 2;
+  for (const it of items) h += it.type === 'separator' ? MENU_SEP_H : MENU_ITEM_H;
+  return h;
+}
+
+/** Action handlers keyed by menu item id (shared by dropdown + accelerators). */
+const menuActions = {
+  reload: () => {
+    const wc = mainContents();
+    if (wc) wc.reload();
+  },
+  'reload-cache': () => {
+    const wc = mainContents();
+    if (wc) wc.reloadIgnoringCache();
+  },
+  'open-external': () => {
+    if (appState.url !== null) openExternalSafely(appState.url);
+  },
+  'hide-to-tray': () => hideToTray(),
+  quit: () => app.quit(),
+  devtools: () => {
+    const wc = mainContents();
+    if (wc) wc.toggleDevTools();
+  },
+  fullscreen: () => {
+    if (win !== null) win.setFullScreen(!win.isFullScreen());
+  },
+  'theme-system': () => setThemeSource('system'),
+  'theme-light': () => setThemeSource('light'),
+  'theme-dark': () => setThemeSource('dark'),
+  restart: () => restartServer()
+};
+
+/** Open (or switch to) a menu, docked directly beneath its button. */
+function openMenuAt(name, relLeft) {
+  if (win === null || menuView === null) return;
+  if (!['file', 'view', 'server'].includes(name)) return;
+  const items = menuItems()[name];
+  const height = menuHeight(items);
+  const [cw] = win.getContentSize();
+  let x = Math.round(Number(relLeft) || 0);
+  if (x + MENU_WIDTH > cw) x = Math.max(0, cw - MENU_WIDTH); // keep within the window
+  menuView.setBounds({ x, y: TITLEBAR_HEIGHT, width: MENU_WIDTH, height });
+  if (!menuView.webContents.isDestroyed()) {
+    menuView.webContents.send('menu:show', { name, items });
+  }
+  openMenu = name;
+  currentMenuLeft = x;
+}
+
+/** Hide the open menu. */
+function closeMenu() {
+  if (openMenu === null) return;
+  openMenu = null;
+  if (menuView !== null && !menuView.webContents.isDestroyed()) {
+    menuView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    menuView.webContents.send('menu:hide');
+  }
+}
+
+/**
+ * The application menu: carries the accelerators (Ctrl/⌘+R, F12, F11,
+ * Ctrl/⌘+Q) and standard Edit roles. On Windows/Linux it is not drawn
+ * (frameless) but its accelerators stay active while the window is focused;
+ * on macOS it appears in the system menu bar (macOS convention).
+ */
+function buildAppMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [];
+  if (isMac) {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    });
+  }
+  template.push({
+    label: '编辑',
+    submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { type: 'separator' },
+      { role: 'selectAll' }
+    ]
+  });
+  template.push({
+    label: '视图',
+    submenu: [
+      { label: '重新加载', accelerator: 'CmdOrCtrl+R', click: () => menuActions.reload() },
+      { label: '强制重新加载', accelerator: 'CmdOrCtrl+Shift+R', click: () => menuActions['reload-cache']() },
+      { type: 'separator' },
+      { label: '开发者工具', accelerator: 'F12', click: () => menuActions.devtools() },
+      { label: '全屏', accelerator: 'F11', click: () => menuActions.fullscreen() }
+    ]
+  });
+  template.push({
+    label: '服务器',
+    submenu: [{ label: '重启 dsh 服务器', click: () => menuActions.restart() }]
+  });
+  if (isMac) {
+    template.push({ label: '窗口', role: 'windowMenu' });
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---------------------------------------------------------------------------
+// Title bar + menu IPC
+// ---------------------------------------------------------------------------
+
+ipcMain.on('menu:toggle', (_event, name, relLeft) => {
+  if (win === null) return;
+  if (openMenu === name) closeMenu();
+  else openMenuAt(name, relLeft);
+});
+
+ipcMain.on('menu:hover', (_event, name, relLeft) => {
+  if (win === null) return;
+  // Switch only while a menu is already open (hover does not open a menu).
+  if (openMenu !== null && openMenu !== name) openMenuAt(name, relLeft);
+});
+
+ipcMain.on('menu:close', () => closeMenu());
+
+ipcMain.on('menu:action', (_event, id) => {
+  closeMenu();
+  const action = menuActions[id];
+  if (action) {
+    try {
+      action();
+    } catch {
+      /* a bad action must never crash the shell */
+    }
+  }
+});
+
+// The harness page was clicked (via its preload) → dismiss any open menu.
+ipcMain.on('harness:click', () => closeMenu());
+
+ipcMain.on('titlebar:window-control', (_event, action) => {
+  if (win === null) return;
+  try {
+    if (action === 'minimize') win.minimize();
+    else if (action === 'maximize') {
+      if (win.isMaximized()) win.unmaximize();
+      else win.maximize();
+    } else if (action === 'close') {
+      // X hides into the tray (server keeps running); only quit via tray/退出.
+      if (tray !== null) hideToTray();
+      else reallyQuit();
+    } else if (action === 'open-browser') {
+      if (appState.url !== null) openExternalSafely(appState.url);
+    }
+  } catch {
+    /* a window-control hiccup must never crash the shell */
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Server restart
+// ---------------------------------------------------------------------------
+
+/**
+ * Restart the dsh web server. Works whether the shell spawned it (child) or
+ * reused an existing one: kill the child if we have one, wait for the port to
+ * free, and if it's still occupied (a reused external dsh web) force-kill that
+ * owner — safe because the port is serving the harness by definition — then
+ * spawn a fresh instance and reload.
+ */
+async function restartServer() {
+  const cfg = appState.cfg;
+  if (cfg === null || win === null || restarting) return;
+  restarting = true;
+  setStatus({ state: 'starting', port: cfg.port });
+  // Show the theme-aware loading page so the harness area doesn't flash a
+  // Chromium "can't reach this page" error while the old server is killed.
+  showLoading();
+  try {
+    // 1. Kill the shell-owned child, if any (its exit is ignored: restarting).
+    if (appState.child !== null) {
+      killChild(appState.child);
+      appState.child = null;
+    }
+    // 2. Wait for the port to be released (covers child-exit delay).
+    if (cfg.port !== 0) {
+      const url = `http://127.0.0.1:${cfg.port}`;
+      const deadline = Date.now() + 10_000;
+      let free = false;
+      while (Date.now() < deadline) {
+        if ((await probeWithGrace(url)) === 'free') {
+          free = true;
+          break;
+        }
+        await sleep(300);
+      }
+      // 3. Still occupied (reused external dsh web): force-kill its owner.
+      if (!free) {
+        const owner = findPortOwner(cfg.port);
+        if (owner) {
+          forceKillPid(owner.pid);
+          const d2 = Date.now() + 5_000;
+          while (Date.now() < d2 && (await probeWithGrace(url)) !== 'free') {
+            await sleep(300);
+          }
+        }
+      }
+    }
+    // 4. Spawn a fresh dsh web, then load it over the loading page.
+    const { url, child } = await spawnOnPort(cfg, cfg.port);
+    appState.url = url;
+    appState.child = child;
+    if (child !== null) bindChildExit(child);
+    loadMain(url);
+    setStatus({ state: 'online', url, port: cfg.port, spawned: true });
+  } catch (err) {
+    // Degrade to a visible, NON-blocking warning: keep the window and the
+    // loading page so the user can retry — do not quit the app.
+    setStatus({ state: 'offline', reason: err.message });
+    const w = BaseWindow.getAllWindows()[0];
+    const opts = {
+      type: 'warning',
+      title: '重启失败',
+      message: `重启 dsh 服务器失败：\n\n${err.message}`,
+      detail: '请确认 dsh web 可正常启动（检查 dsh 安装与端口占用），然后重试。',
+      buttons: ['好的']
+    };
+    if (w !== undefined) dialog.showMessageBox(w, opts);
+    else dialog.showMessageBox(opts);
+  } finally {
+    restarting = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+
+const appState = { cfg: null, child: null, url: null };
+let quitting = false;
+// True while a restart is in flight: the child's intentional kill must NOT
+// trigger the "dsh web exited" dialog / app quit.
+let restarting = false;
+
+function fatal(message) {
+  dialog.showErrorBox('DSH Desktop Pure', message);
+  app.exit(1);
+}
+
+function bindChildExit(child) {
+  child.on('exit', (code, signal) => {
+    // Ignore exits caused by us quitting or by a restart (intentional kill).
+    if (quitting || restarting) return;
+    const why = code !== null ? `code ${code}` : `signal ${signal}`;
+    setStatus({ state: 'offline', reason: why });
+    const opts = {
+      type: 'error',
+      title: 'dsh web 已退出',
+      message: `dsh web 进程已退出（${why}）。\n\n正在关闭窗口。`,
+      buttons: ['关闭']
+    };
+    const w = BaseWindow.getAllWindows()[0];
+    if (w !== undefined) dialog.showMessageBoxSync(w, opts);
+    else dialog.showMessageBoxSync(opts);
+    app.quit();
+  });
+}
+
+async function main() {
+  const cfg = resolveConfig();
+  appState.cfg = cfg;
+
+  // The window appears immediately; the title bar shows "starting" while the
+  // server is resolved/spawned, then flips to "online" once the page loads.
+  createWindow();
+  setStatus({ state: 'starting', port: cfg.port });
+
+  let url;
+  let child = null;
+  try {
+    if (cfg.urlOverride !== undefined) {
+      url = cfg.urlOverride;
+    } else {
+      ({ url, child } = await resolveServer(cfg));
+    }
+  } catch (err) {
+    setStatus({ state: 'offline', reason: err.message });
+    fatal(`无法启动 DeepSeek Harness Web GUI：\n\n${err.message}`);
+    return;
+  }
+
+  appState.url = url;
+  appState.child = child;
+  if (child !== null) bindChildExit(child);
+
+  loadMain(url);
+  setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
+
+  if (cfg.verbose) {
+    console.log(
+      `[DSH Desktop Pure] window -> ${url}${child === null ? ' (reused existing server)' : ' (spawned dsh web)'}`
+    );
+  }
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const w = BaseWindow.getAllWindows()[0];
+    if (w !== undefined) {
+      if (w.isMinimized()) w.restore();
+      w.show(); // it may be hidden in the tray
+      w.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    app.setAppUserModelId('com.deepseek-ai.dsh-desktop-pure');
+    nativeTheme.themeSource = loadTheme(); // default: follow the system
+    nativeTheme.on('updated', () => {
+      // The OS theme changed (or themeSource is 'system'): re-skin the window
+      // background. The title bar / menus re-skin via CSS media queries.
+      if (win !== null && !win.isDestroyed()) win.setBackgroundColor(currentWindowBg());
+    });
+    buildAppMenu();
+    createTray();
+    main();
+  });
+}
+
+app.on('before-quit', () => {
+  quitting = true;
+  if (appState.child !== null) killChild(appState.child);
+});
+
+app.on('window-all-closed', () => {
+  // macOS convention: keep the app alive (relaunchable via the Dock); quit elsewhere.
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  // macOS: clicking the Dock icon re-shows the window (it may be hidden in the
+  // tray); only re-create one if there is none at all.
+  if (process.platform !== 'darwin') return;
+  const w = BaseWindow.getAllWindows()[0];
+  if (w !== undefined) {
+    if (w.isMinimized()) w.restore();
+    w.show();
+    w.focus();
+  } else if (appState.url !== null) {
+    createWindow();
+    loadMain(appState.url);
+    setStatus({ state: appState.child !== null ? 'online' : 'offline', url: appState.url });
+  }
+});
