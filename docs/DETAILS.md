@@ -17,8 +17,8 @@
 **前置条件**：Node.js ≥ 18。
 
 ```bash
-git clone https://github.com/WJBFks/dsh-electron.git
-cd dsh-electron
+git clone https://github.com/WJBFks/dsh-desktop-pure.git
+cd dsh-desktop-pure
 npm install          # 首次安装 Electron（下载二进制较慢，属正常）
 npm start            # 启动壳
 npm run dev          # 同上 + 转发 dsh web 日志到终端（--verbose）
@@ -33,14 +33,14 @@ npm run selftest     # 端口策略自测（用 3987 测试端口，不碰 3080�
 
 | 参数 | 环境变量 | 说明 | 默认 |
 | --- | --- | --- | --- |
-| `--port=<n>` | `DSH_ELECTRON_PORT` | `dsh web` 监听端口（`0` = 系统分配） | `3080` |
-| `--url=<url>` | `DSH_ELECTRON_URL` | 直接加载该地址，不 spawn、不探测 | 无 |
-| `--dsh=<path>` | `DSH_ELECTRON_DSH` | `dsh` 可执行文件的完整路径 | `dsh`（走 PATH） |
-| `--verbose` | `DSH_ELECTRON_VERBOSE=1` | 转发 dsh 日志到终端 | 关 |
+| `--port=<n>` | `DSH_DESKTOP_PORT` | `dsh web` 监听端口（`0` = 系统分配） | `3080` |
+| `--url=<url>` | `DSH_DESKTOP_URL` | 直接加载该地址，不 spawn、不探测 | 无 |
+| `--dsh=<path>` | `DSH_DESKTOP_DSH` | `dsh` 可执行文件的完整路径 | `dsh`（走 PATH） |
+| `--verbose` | `DSH_DESKTOP_VERBOSE=1` | 转发 dsh 日志到终端 | 关 |
 
 示例：`npm start -- --port=8080`、`npm start -- --url=http://127.0.0.1:3080`
 
-> 注：环境变量等字段中的 `dsh-electron`，为项目最初未正式命名时的代号；正式名称现为 *DSH Desktop Pure*。
+> 注：早期未正式命名时，仓库与环境变量前缀曾分别用 `dsh-electron` / `DSH_ELECTRON_*`；现已统一为 *DSH Desktop Pure* / `DSH_DESKTOP_*`。为兼容旧配置，`DSH_ELECTRON_*` 仍会被识别（新前缀优先）。
 
 ## 升级 DSH
 

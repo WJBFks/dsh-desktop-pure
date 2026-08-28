@@ -17,8 +17,8 @@
 **Prerequisites**: Node.js ≥ 18.
 
 ```bash
-git clone https://github.com/WJBFks/dsh-electron.git
-cd dsh-electron
+git clone https://github.com/WJBFks/dsh-desktop-pure.git
+cd dsh-desktop-pure
 npm install          # first-time Electron download (slow, normal)
 npm start            # launch the shell
 npm run dev          # same + forward dsh web logs to the terminal (--verbose)
@@ -33,14 +33,14 @@ npm run selftest     # port-policy self-test (uses test port 3987, never 3080)
 
 | Flag | Env var | Description | Default |
 | --- | --- | --- | --- |
-| `--port=<n>` | `DSH_ELECTRON_PORT` | port for `dsh web` (0 = OS-assigned) | `3080` |
-| `--url=<url>` | `DSH_ELECTRON_URL` | load this URL directly (no spawn/probe) | none |
-| `--dsh=<path>` | `DSH_ELECTRON_DSH` | full path to the `dsh` executable | `dsh` (PATH) |
-| `--verbose` | `DSH_ELECTRON_VERBOSE=1` | forward dsh logs to the terminal | off |
+| `--port=<n>` | `DSH_DESKTOP_PORT` | port for `dsh web` (0 = OS-assigned) | `3080` |
+| `--url=<url>` | `DSH_DESKTOP_URL` | load this URL directly (no spawn/probe) | none |
+| `--dsh=<path>` | `DSH_DESKTOP_DSH` | full path to the `dsh` executable | `dsh` (PATH) |
+| `--verbose` | `DSH_DESKTOP_VERBOSE=1` | forward dsh logs to the terminal | off |
 
 Examples: `npm start -- --port=8080`, `npm start -- --url=http://127.0.0.1:3080`
 
-> Note: `dsh-electron` in env vars (and similar fields) was the project's original, pre-naming codename; the official name is now *DSH Desktop Pure*.
+> Note: before the official name, the repo and env-var prefix were `dsh-electron` / `DSH_ELECTRON_*`; these are now standardized to *DSH Desktop Pure* / `DSH_DESKTOP_*`. For backward compatibility `DSH_ELECTRON_*` is still recognized (the new prefix wins).
 
 ## Upgrading DSH
 

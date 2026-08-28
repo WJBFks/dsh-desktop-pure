@@ -53,7 +53,7 @@
 ## 后续计划（Roadmap）
 
 1. **自动下载原生 DSH** —— 首次运行若检测到未安装 `@deepseek-ai/dsh`，自动拉取安装，免去手动全局安装。
-2. **自定义端口** —— 已支持 `--port` / `DSH_ELECTRON_PORT`；计划增强为界面化配置 + 持久化。
+2. **自定义端口** —— 已支持 `--port` / `DSH_DESKTOP_PORT`；计划增强为界面化配置 + 持久化。
 3. **可连接远程 DSH Web** —— 支持指向非 loopback 的远程 `dsh web` 实例（需重新评估安全模型，当前仅允许 loopback）。
 4. **配套 DSH 插件（增强桌面端体验）** —— 以 DSH 插件形式提供增强能力。**定位明确**：开发重心**始终在桌面端本体**，不会转移到「插件 ↔ 桌面端联动」；插件是**可选增强**，**不安装插件也保留绝大部分正常体验**，桌面端绝不依赖插件即可完整使用。
 
@@ -65,7 +65,7 @@
    npm install -g @deepseek-ai/dsh
    ```
 
-2. **Windows 用户**：到 [Releases](https://github.com/WJBFks/dsh-electron/releases) 下载 Windows 安装包，安装后双击运行即可。
+2. **Windows 用户**：到 [Releases](https://github.com/WJBFks/dsh-desktop-pure/releases) 下载 Windows 安装包，安装后双击运行即可。
 
 > 其他平台的构建方式、从源码运行、命令行配置等，详见 [详细说明](./docs/DETAILS.md)。
 

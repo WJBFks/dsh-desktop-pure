@@ -53,7 +53,7 @@
 ## Roadmap
 
 1. **Auto-download native DSH** — on first run, if `@deepseek-ai/dsh` is missing, fetch and install it automatically (no manual global install).
-2. **Custom port** — `--port` / `DSH_ELECTRON_PORT` already work; planned: a friendlier in-UI configuration with persistence.
+2. **Custom port** — `--port` / `DSH_DESKTOP_PORT` already work; planned: a friendlier in-UI configuration with persistence.
 3. **Connect to a remote DSH Web** — point at a non-loopback `dsh web` instance (requires a security-model review; currently loopback only).
 4. **Companion DSH plugin (desktop enhancement)** — a DSH plugin that enhances the desktop experience. **Positioning is explicit**: development focus **always stays on the desktop app itself**, and will **not** shift to "plugin ↔ desktop linkage"; the plugin is an **optional enhancement** — **without it, the vast majority of the normal experience is preserved**, and the desktop app never depends on the plugin.
 
@@ -65,7 +65,7 @@
    npm install -g @deepseek-ai/dsh
    ```
 
-2. **Windows users**: download the Windows installer from [Releases](https://github.com/WJBFks/dsh-electron/releases), install it, and double-click to run.
+2. **Windows users**: download the Windows installer from [Releases](https://github.com/WJBFks/dsh-desktop-pure/releases), install it, and double-click to run.
 
 > For building on other platforms, running from source, and command-line configuration, see the [detailed reference](./docs/DETAILS.en.md).
 

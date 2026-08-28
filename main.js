@@ -69,7 +69,7 @@ const DARK_BG = '#111827';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---------------------------------------------------------------------------
-// Configuration (--port=, --url=, --dsh=, --verbose + DSH_ELECTRON_* env)
+// Configuration (--port=, --url=, --dsh=, --verbose + DSH_DESKTOP_* env; legacy DSH_ELECTRON_* still honored)
 // ---------------------------------------------------------------------------
 
 function readFlag(name) {
@@ -82,7 +82,9 @@ function readFlag(name) {
 }
 
 function resolveConfig() {
-  const portRaw = readFlag('port') ?? process.env.DSH_ELECTRON_PORT;
+  // Env vars: prefer DSH_DESKTOP_*, fall back to legacy DSH_ELECTRON_* (v0.1.0).
+  const env = (sfx) => process.env['DSH_DESKTOP_' + sfx] ?? process.env['DSH_ELECTRON_' + sfx];
+  const portRaw = readFlag('port') ?? env('PORT');
   const parsed = Number(portRaw);
   const port =
     portRaw !== undefined && Number.isInteger(parsed) && parsed >= 0 && parsed <= 65535
@@ -90,9 +92,9 @@ function resolveConfig() {
       : DEFAULT_PORT;
   return {
     port,
-    urlOverride: readFlag('url') ?? (process.env.DSH_ELECTRON_URL || undefined),
-    dshBin: readFlag('dsh') ?? (process.env.DSH_ELECTRON_DSH || 'dsh'),
-    verbose: process.argv.includes('--verbose') || process.env.DSH_ELECTRON_VERBOSE === '1'
+    urlOverride: readFlag('url') ?? (env('URL') || undefined),
+    dshBin: readFlag('dsh') ?? (env('DSH') || 'dsh'),
+    verbose: process.argv.includes('--verbose') || env('VERBOSE') === '1'
   };
 }
 
@@ -261,7 +263,7 @@ async function spawnOnPort(cfg, port) {
         `无法启动 '${cfg.dshBin}'（ENOENT）。\n` +
           '@deepseek-ai/dsh 是否已安装、且其 bin 目录在 PATH 上？\n' +
           '  npm install -g @deepseek-ai/dsh\n' +
-          '或通过 DSH_ELECTRON_DSH 指定 dsh 的完整路径。'
+          '或通过 DSH_DESKTOP_DSH 指定 dsh 的完整路径。'
       );
     }
     throw err;
