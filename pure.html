@@ -7,15 +7,17 @@
   <style>
     /*
       DSH Desktop Pure — the shell's own page. Fully local (file://), no network,
-      independent of the dsh web server. Visual style follows the DSH Web UI
-      settings page: the `--dsw-*` design tokens (light set on :root, dark set
-      under prefers-color-scheme, which nativeTheme.themeSource controls).
+      independent of the dsh web server. Layout mirrors the DSH Web settings
+      panel: a left sidebar (brand + section nav) and a right content body.
+      Tokens: the `--dsw-*` design set (light on :root, dark under
+      prefers-color-scheme, which nativeTheme.themeSource controls).
     */
     :root {
       /* Surfaces */
       --bg-base: #ffffff;
       --bg-layer-2: #ffffff;
       --bg-module-platform: #f5f6f7;
+      --sidebar-fill: #f9fafb;
       /* Borders */
       --border-l2: #0000001a;
       --border-l3: #0000001f;
@@ -24,6 +26,9 @@
       --label-secondary: #61666b;
       --label-tertiary: #81858c;
       --label-caption: #adb2b8;
+      /* Nav */
+      --sidebar-hover: #f1f3f5;
+      --sidebar-active: #ebeef2;
       /* Interaction */
       --interactive-hover: #2631480f;
       --accent: #4176e6;
@@ -42,12 +47,15 @@
         --bg-base: #151517;
         --bg-layer-2: #2c2c2e;
         --bg-module-platform: #353638;
+        --sidebar-fill: #1b1b1c;
         --border-l2: #ffffff1f;
         --border-l3: #ffffff29;
         --label-primary: #f9fafb;
         --label-secondary: #cfd3d6;
         --label-tertiary: #adb2b8;
         --label-caption: #81858c;
+        --sidebar-hover: #2c2c2e;
+        --sidebar-active: #43454a;
         --interactive-hover: #ffffff14;
         --accent: #679efe;
         --button-primary-fill: #f9fafb;
@@ -74,56 +82,48 @@
     }
     .page {
       height: 100%;
-      overflow-y: auto;
-    }
-    .page::-webkit-scrollbar {
-      width: 8px;
-    }
-    .page::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .page::-webkit-scrollbar-thumb {
-      background: #e5e5e5;
-      border-radius: 4px;
-    }
-    .page::-webkit-scrollbar-thumb:hover {
-      background: #d4d4d4;
-    }
-    @media (prefers-color-scheme: dark) {
-      .page::-webkit-scrollbar-thumb {
-        background: #3c3c3d;
-      }
-      .page::-webkit-scrollbar-thumb:hover {
-        background: #545557;
-      }
-    }
-    .inner {
-      width: 100%;
-      max-width: 680px;
-      margin: 0 auto;
-      padding: 44px 24px 56px;
-      box-sizing: border-box;
       display: flex;
-      flex-direction: column;
-      gap: 24px;
+      align-items: center;
+      justify-content: center;
+    }
+    .panel {
+      width: min(900px, calc(100% - 48px));
+      height: min(700px, calc(100% - 48px));
+      min-height: 460px;
+      display: flex;
+      background: var(--bg-layer-2);
+      border: 1px solid var(--border-l2);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
     }
 
-    /* Brand header */
+    /* Sidebar (brand + section nav) */
+    .sidebar {
+      width: 200px;
+      flex: 0 0 200px;
+      background: var(--sidebar-fill);
+      border-right: 1px solid var(--border-l2);
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+    }
     .brand {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 10px;
+      margin-bottom: 20px;
     }
     .brand-mark {
-      width: 52px;
-      height: 52px;
+      width: 38px;
+      height: 38px;
       flex: 0 0 auto;
       display: flex;
       align-items: center;
       justify-content: center;
       background: var(--bg-module-platform);
       border: 1px solid var(--border-l2);
-      border-radius: 14px;
+      border-radius: 10px;
       color: var(--label-primary);
     }
     .brand-mark svg {
@@ -134,62 +134,120 @@
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 2px;
     }
     .brand-name {
-      font-size: 20px;
-      font-weight: 600;
-      line-height: 28px;
-      color: var(--label-primary);
-      letter-spacing: 0.2px;
-    }
-    .brand-sub {
       font-size: 13px;
-      line-height: 18px;
-      color: var(--label-tertiary);
+      font-weight: 600;
+      line-height: 17px;
+      color: var(--label-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .brand-version {
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 15px;
       color: var(--label-caption);
-      border: 1px solid var(--border-l2);
-      border-radius: 999px;
-      padding: 3px 10px;
+    }
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .nav-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--label-secondary);
+      font: inherit;
+      font-size: 13px;
+      line-height: 18px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.14s, color 0.14s;
+    }
+    .nav-cell svg {
+      display: block;
       flex: 0 0 auto;
     }
-
-    /* Panel */
-    .panel {
-      background: var(--bg-layer-2);
-      border: 1px solid var(--border-l2);
-      border-radius: 16px;
-      box-shadow: var(--shadow);
-      overflow: hidden;
+    .nav-cell span {
+      flex: 1 1 auto;
     }
-    .section {
-      padding: 22px 24px;
-      border-bottom: 1px solid var(--border-l2);
-    }
-    .section:last-child {
-      border-bottom: none;
-    }
-    .section-title {
-      font-size: 15px;
-      font-weight: 600;
-      line-height: 22px;
+    .nav-cell:hover:not(.active) {
+      background: var(--sidebar-hover);
       color: var(--label-primary);
     }
-    .section-desc {
-      font-size: 12px;
-      line-height: 18px;
+    .nav-cell.active {
+      background: var(--sidebar-active);
+      color: var(--label-primary);
+      font-weight: 500;
+    }
+    .sidebar-foot {
+      margin-top: auto;
+      padding-top: 12px;
+      font-size: 11px;
+      line-height: 15px;
+      color: var(--label-caption);
+    }
+
+    /* Content body */
+    .content {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-y: auto;
+      background: var(--bg-layer-2);
+      padding: 24px 28px;
+    }
+    .content::-webkit-scrollbar {
+      width: 8px;
+    }
+    .content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .content::-webkit-scrollbar-thumb {
+      background: #e5e5e5;
+      border-radius: 4px;
+    }
+    .content::-webkit-scrollbar-thumb:hover {
+      background: #d4d4d4;
+    }
+    @media (prefers-color-scheme: dark) {
+      .content::-webkit-scrollbar-thumb {
+        background: #3c3c3d;
+      }
+      .content::-webkit-scrollbar-thumb:hover {
+        background: #545557;
+      }
+    }
+    .pane {
+      max-width: 540px;
+    }
+    .pane[hidden] {
+      display: none;
+    }
+    .pane-title {
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 26px;
+      color: var(--label-primary);
+      margin: 0 0 4px;
+    }
+    .pane-desc {
+      font-size: 13px;
+      line-height: 19px;
       color: var(--label-tertiary);
-      margin-top: 5px;
+      margin: 0 0 18px;
     }
 
     /* Appearance cubes (light / dark / system) */
     .cube-row {
       display: flex;
       gap: 10px;
-      margin-top: 14px;
       flex-wrap: wrap;
     }
     .cube {
@@ -226,10 +284,10 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 14px 0;
+      padding: 13px 0;
       border-bottom: 1px solid var(--border-l2);
     }
-    .section .row:last-child {
+    .pane .row:last-child {
       border-bottom: none;
     }
     .row-text {
@@ -262,7 +320,7 @@
     }
     .row-actions {
       border-bottom: none;
-      padding-top: 16px;
+      padding-top: 14px;
     }
 
     /* Status pill */
@@ -367,42 +425,66 @@
 
     .cube:focus-visible,
     .btn:focus-visible,
+    .nav-cell:focus-visible,
     .link:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
-    }
-
-    .foot {
-      font-size: 12px;
-      line-height: 18px;
-      color: var(--label-caption);
-      text-align: center;
-      padding: 0 8px;
     }
   </style>
 </head>
 <body>
   <main class="page">
-    <div class="inner">
-      <!-- Brand -->
-      <header class="brand">
-        <div class="brand-mark">
-          <svg width="34" height="34" viewBox="0 0 50 50" aria-hidden="true">
-            <path fill="currentColor" d="M48.8354 10.0479C48.3232 9.79199 48.1025 10.2798 47.8032 10.5278C47.7007 10.6079 47.6143 10.7119 47.5273 10.8076C46.7793 11.624 45.9048 12.1597 44.7622 12.0957C43.0923 12 41.666 12.5356 40.4058 13.8398C40.1377 12.2319 39.2476 11.272 37.8926 10.6558C37.1836 10.3359 36.4668 10.0156 35.9702 9.31982C35.6235 8.82373 35.5293 8.27197 35.356 7.72754C35.2456 7.3999 35.1353 7.06396 34.7651 7.00781C34.3633 6.94385 34.2056 7.2876 34.0479 7.57568C33.418 8.75195 33.1733 10.0479 33.1973 11.3599C33.2524 14.312 34.4736 16.6641 36.8999 18.3359C37.1758 18.5278 37.2466 18.7197 37.1597 19C36.9946 19.5757 36.7974 20.1357 36.624 20.7119C36.5137 21.0801 36.3486 21.1597 35.9624 21C34.6309 20.4321 33.481 19.5918 32.4644 18.5757C30.7393 16.8721 29.1792 14.9917 27.2334 13.52C26.7764 13.1758 26.3193 12.856 25.8467 12.5518C23.8618 10.584 26.1069 8.96777 26.627 8.77588C27.1704 8.57568 26.8159 7.8877 25.0591 7.896C23.3022 7.90381 21.6953 8.50391 19.647 9.30371C19.3477 9.42383 19.0322 9.51172 18.7095 9.58398C16.8501 9.22363 14.9199 9.14355 12.9033 9.37598C9.10596 9.80762 6.07275 11.6396 3.84326 14.7681C1.16455 18.5278 0.53418 22.7998 1.30664 27.2559C2.11768 31.9521 4.46582 35.8398 8.07373 38.8799C11.8159 42.0322 16.1255 43.5762 21.041 43.2803C24.0269 43.104 27.3516 42.6963 31.1016 39.4561C32.0469 39.936 33.0396 40.1279 34.686 40.272C35.9546 40.3921 37.1758 40.208 38.1211 40.0078C39.6021 39.688 39.4995 38.2881 38.9639 38.0322C34.623 35.9678 35.5762 36.8081 34.71 36.1279C36.9155 33.4639 40.2402 30.6958 41.54 21.728C41.6426 21.0161 41.5557 20.5679 41.54 19.9917C41.5322 19.6396 41.6108 19.5039 42.0049 19.4639C43.0923 19.3359 44.1479 19.0317 45.1167 18.4878C47.9292 16.9199 49.064 14.3438 49.3315 11.2559C49.3711 10.7837 49.3237 10.2959 48.8354 10.0479ZM24.3262 37.8398C20.1196 34.4639 18.0791 33.3521 17.2358 33.3999C16.4482 33.4482 16.5898 34.3682 16.7632 34.9678C16.9443 35.5601 17.1812 35.9683 17.5117 36.4878C17.7402 36.832 17.8979 37.3442 17.2832 37.728C15.9282 38.584 13.5728 37.4399 13.4624 37.3838C10.7207 35.7358 8.42822 33.5601 6.81348 30.584C5.25342 27.7197 4.34766 24.6479 4.19775 21.3677C4.1582 20.5757 4.38672 20.2959 5.15869 20.1519C6.17529 19.96 7.22314 19.9199 8.23926 20.0718C12.5327 20.7119 16.1885 22.6719 19.2529 25.7759C21.002 27.5439 22.3252 29.6558 23.6885 31.7202C25.1377 33.9121 26.6978 36 28.6831 37.7119C29.3843 38.312 29.9434 38.7681 30.479 39.104C28.8643 39.2881 26.1699 39.3281 24.3262 37.8398ZM26.3433 24.6001C26.3433 24.248 26.6191 23.9678 26.9658 23.9678C27.0444 23.9678 27.1152 23.9839 27.1782 24.0078C27.2651 24.04 27.3438 24.0879 27.4067 24.1602C27.5171 24.272 27.5801 24.4321 27.5801 24.6001C27.5801 24.9521 27.3042 25.2319 26.9575 25.2319C26.6108 25.2319 26.3433 24.9521 26.3433 24.6001ZM32.6064 27.8799C32.2046 28.0479 31.8027 28.1919 31.4165 28.208C30.8179 28.2397 30.1641 27.9922 29.8096 27.688C29.2583 27.2158 28.8643 26.9521 28.6987 26.1279C28.6279 25.7759 28.6675 25.2319 28.7305 24.9199C28.8721 24.248 28.7144 23.8159 28.2495 23.4238C27.8716 23.104 27.3911 23.0161 26.8633 23.0161C26.666 23.0161 26.4849 22.9277 26.3511 22.856C26.1304 22.7441 25.9492 22.4639 26.1226 22.1201C26.1777 22.0078 26.4458 21.7358 26.5088 21.688C27.2256 21.272 28.0527 21.4077 28.8169 21.7197C29.5259 22.0161 30.0615 22.5601 30.834 23.3281C31.6216 24.2559 31.7632 24.5117 32.2124 25.208C32.5669 25.752 32.8901 26.312 33.1104 26.9521C33.2446 27.3521 33.0713 27.6802 32.6064 27.8799Z"/>
-          </svg>
+    <div class="panel">
+      <!-- Sidebar: brand + section navigation -->
+      <nav class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">
+            <svg width="26" height="26" viewBox="0 0 50 50" aria-hidden="true">
+              <path fill="currentColor" d="M48.8354 10.0479C48.3232 9.79199 48.1025 10.2798 47.8032 10.5278C47.7007 10.6079 47.6143 10.7119 47.5273 10.8076C46.7793 11.624 45.9048 12.1597 44.7622 12.0957C43.0923 12 41.666 12.5356 40.4058 13.8398C40.1377 12.2319 39.2476 11.272 37.8926 10.6558C37.1836 10.3359 36.4668 10.0156 35.9702 9.31982C35.6235 8.82373 35.5293 8.27197 35.356 7.72754C35.2456 7.3999 35.1353 7.06396 34.7651 7.00781C34.3633 6.94385 34.2056 7.2876 34.0479 7.57568C33.418 8.75195 33.1733 10.0479 33.1973 11.3599C33.2524 14.312 34.4736 16.6641 36.8999 18.3359C37.1758 18.5278 37.2466 18.7197 37.1597 19C36.9946 19.5757 36.7974 20.1357 36.624 20.7119C36.5137 21.0801 36.3486 21.1597 35.9624 21C34.6309 20.4321 33.481 19.5918 32.4644 18.5757C30.7393 16.8721 29.1792 14.9917 27.2334 13.52C26.7764 13.1758 26.3193 12.856 25.8467 12.5518C23.8618 10.584 26.1069 8.96777 26.627 8.77588C27.1704 8.57568 26.8159 7.8877 25.0591 7.896C23.3022 7.90381 21.6953 8.50391 19.647 9.30371C19.3477 9.42383 19.0322 9.51172 18.7095 9.58398C16.8501 9.22363 14.9199 9.14355 12.9033 9.37598C9.10596 9.80762 6.07275 11.6396 3.84326 14.7681C1.16455 18.5278 0.53418 22.7998 1.30664 27.2559C2.11768 31.9521 4.46582 35.8398 8.07373 38.8799C11.8159 42.0322 16.1255 43.5762 21.041 43.2803C24.0269 43.104 27.3516 42.6963 31.1016 39.4561C32.0469 39.936 33.0396 40.1279 34.686 40.272C35.9546 40.3921 37.1758 40.208 38.1211 40.0078C39.6021 39.688 39.4995 38.2881 38.9639 38.0322C34.623 35.9678 35.5762 36.8081 34.71 36.1279C36.9155 33.4639 40.2402 30.6958 41.54 21.728C41.6426 21.0161 41.5557 20.5679 41.54 19.9917C41.5322 19.6396 41.6108 19.5039 42.0049 19.4639C43.0923 19.3359 44.1479 19.0317 45.1167 18.4878C47.9292 16.9199 49.064 14.3438 49.3315 11.2559C49.3711 10.7837 49.3237 10.2959 48.8354 10.0479ZM24.3262 37.8398C20.1196 34.4639 18.0791 33.3521 17.2358 33.3999C16.4482 33.4482 16.5898 34.3682 16.7632 34.9678C16.9443 35.5601 17.1812 35.9683 17.5117 36.4878C17.7402 36.832 17.8979 37.3442 17.2832 37.728C15.9282 38.584 13.5728 37.4399 13.4624 37.3838C10.7207 35.7358 8.42822 33.5601 6.81348 30.584C5.25342 27.7197 4.34766 24.6479 4.19775 21.3677C4.1582 20.5757 4.38672 20.2959 5.15869 20.1519C6.17529 19.96 7.22314 19.9199 8.23926 20.0718C12.5327 20.7119 16.1885 22.6719 19.2529 25.7759C21.002 27.5439 22.3252 29.6558 23.6885 31.7202C25.1377 33.9121 26.6978 36 28.6831 37.7119C29.3843 38.312 29.9434 38.7681 30.479 39.104C28.8643 39.2881 26.1699 39.3281 24.3262 37.8398ZM26.3433 24.6001C26.3433 24.248 26.6191 23.9678 26.9658 23.9678C27.0444 23.9678 27.1152 23.9839 27.1782 24.0078C27.2651 24.04 27.3438 24.0879 27.4067 24.1602C27.5171 24.272 27.5801 24.4321 27.5801 24.6001C27.5801 24.9521 27.3042 25.2319 26.9575 25.2319C26.6108 25.2319 26.3433 24.9521 26.3433 24.6001ZM32.6064 27.8799C32.2046 28.0479 31.8027 28.1919 31.4165 28.208C30.8179 28.2397 30.1641 27.9922 29.8096 27.688C29.2583 27.2158 28.8643 26.9521 28.6987 26.1279C28.6279 25.7759 28.6675 25.2319 28.7305 24.9199C28.8721 24.248 28.7144 23.8159 28.2495 23.4238C27.8716 23.104 27.3911 23.0161 26.8633 23.0161C26.666 23.0161 26.4849 22.9277 26.3511 22.856C26.1304 22.7441 25.9492 22.4639 26.1226 22.1201C26.1777 22.0078 26.4458 21.7358 26.5088 21.688C27.2256 21.272 28.0527 21.4077 28.8169 21.7197C29.5259 22.0161 30.0615 22.5601 30.834 23.3281C31.6216 24.2559 31.7632 24.5117 32.2124 25.208C32.5669 25.752 32.8901 26.312 33.1104 26.9521C33.2446 27.3521 33.0713 27.6802 32.6064 27.8799Z"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <div class="brand-name">DSH Desktop Pure</div>
+            <div class="brand-version" id="brandVersion">v—</div>
+          </div>
         </div>
-        <div class="brand-text">
-          <div class="brand-name">DSH Desktop Pure</div>
-          <div class="brand-sub">DeepSeek Harness · 桌面外壳</div>
+        <div class="nav-list" id="navList">
+          <button class="nav-cell active" data-section="appearance" type="button">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
+              <circle cx="8" cy="8" r="3"/>
+              <line x1="8" y1="1.5" x2="8" y2="3.4"/><line x1="8" y1="12.6" x2="8" y2="14.5"/>
+              <line x1="1.5" y1="8" x2="3.4" y2="8"/><line x1="12.6" y1="8" x2="14.5" y2="8"/>
+              <line x1="3.4" y1="3.4" x2="4.7" y2="4.7"/><line x1="11.3" y1="11.3" x2="12.6" y2="12.6"/>
+              <line x1="12.6" y1="3.4" x2="11.3" y2="4.7"/><line x1="4.7" y1="11.3" x2="3.4" y2="12.6"/>
+            </svg>
+            <span>外观</span>
+          </button>
+          <button class="nav-cell" data-section="web" type="button">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1">
+              <circle cx="8" cy="8" r="6.25"/>
+              <line x1="1.75" y1="8" x2="14.25" y2="8"/>
+              <ellipse cx="8" cy="8" rx="2.9" ry="6.25"/>
+            </svg>
+            <span>DSH Web</span>
+          </button>
+          <button class="nav-cell" data-section="about" type="button">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor">
+              <circle cx="8" cy="8" r="6.25" stroke-width="1"/>
+              <line x1="8" y1="7.3" x2="8" y2="11.2" stroke-width="1.2" stroke-linecap="round"/>
+              <circle cx="8" cy="4.9" r="0.85" fill="currentColor" stroke="none"/>
+            </svg>
+            <span>关于</span>
+          </button>
         </div>
-        <div class="brand-version" id="brandVersion">v—</div>
-      </header>
+        <div class="sidebar-foot">内置页面 · 独立于 dsh web</div>
+      </nav>
 
-      <section class="panel">
+      <!-- Content body -->
+      <div class="content">
         <!-- Appearance -->
-        <div class="section">
-          <div class="section-title">外观</div>
-          <div class="section-desc">选择界面主题，将实时应用于整个 DSH Desktop Pure。</div>
+        <section class="pane" id="pane-appearance">
+          <h2 class="pane-title">外观</h2>
+          <p class="pane-desc">选择界面主题，将实时应用于整个 DSH Desktop Pure。</p>
           <div class="cube-row" id="themeCubes">
             <button class="cube" data-theme="light" type="button" aria-pressed="false">
               <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true">
@@ -428,14 +510,14 @@
               <span>跟随系统</span>
             </button>
           </div>
-        </div>
+        </section>
 
-        <!-- DSH Web connection -->
-        <div class="section">
-          <div class="section-title">DSH Web</div>
-          <div class="section-desc">
+        <!-- DSH Web -->
+        <section class="pane" id="pane-web" hidden>
+          <h2 class="pane-title">DSH Web</h2>
+          <p class="pane-desc">
             DSH Desktop Pure 完全独立于 DSH Web —— 即使 dsh web 服务未启动，本页也照常可用。
-          </div>
+          </p>
           <div class="row">
             <div class="row-text">
               <div class="row-title">连接状态</div>
@@ -464,11 +546,12 @@
               <button class="btn btn-ghost" id="btnRestart" type="button">重启 dsh 服务器</button>
             </div>
           </div>
-        </div>
+        </section>
 
         <!-- About -->
-        <div class="section">
-          <div class="section-title">关于</div>
+        <section class="pane" id="pane-about" hidden>
+          <h2 class="pane-title">关于</h2>
+          <p class="pane-desc">DSH Desktop Pure 是 DeepSeek Harness（dsh web）的零侵入桌面外壳。</p>
           <div class="row">
             <div class="row-text">
               <div class="row-title">运行环境</div>
@@ -494,12 +577,8 @@
             </div>
             <div class="val">MIT · WJBFks (2026)</div>
           </div>
-        </div>
-      </section>
-
-      <footer class="foot">
-        本页由 DSH Desktop Pure 自带，随应用内置，不依赖网络或 dsh web 服务。
-      </footer>
+        </section>
+      </div>
     </div>
   </main>
   <script>
@@ -519,11 +598,27 @@
       var btnRestart = $('btnRestart');
       var repoLink = $('repoLink');
       var cubes = Array.prototype.slice.call(document.querySelectorAll('#themeCubes .cube'));
+      var navCells = Array.prototype.slice.call(document.querySelectorAll('#navList .nav-cell'));
+      var panes = {
+        appearance: $('pane-appearance'),
+        web: $('pane-web'),
+        about: $('pane-about')
+      };
 
       var lastInfo = null;
 
       function platformName(p) {
         return p === 'win32' ? 'Windows' : p === 'darwin' ? 'macOS' : p === 'linux' ? 'Linux' : String(p || '—');
+      }
+
+      function showPane(name) {
+        if (!panes[name]) name = 'appearance';
+        navCells.forEach(function (c) {
+          c.classList.toggle('active', c.getAttribute('data-section') === name);
+        });
+        Object.keys(panes).forEach(function (k) {
+          panes[k].hidden = (k !== name);
+        });
       }
 
       function selectTheme(source) {
@@ -574,6 +669,13 @@
       }
 
       if (api) {
+        // Sidebar section switching.
+        navCells.forEach(function (c) {
+          c.addEventListener('click', function () {
+            showPane(c.getAttribute('data-section'));
+          });
+        });
+
         // Initial snapshot, then live updates (view / theme / server state).
         Promise.resolve(api.getInfo()).then(applyInfo).catch(function () {
           /* ignore — page still renders, values stay at placeholders */
@@ -595,6 +697,8 @@
           api.openExternal('https://github.com/WJBFks/dsh-desktop-pure');
         });
       }
+
+      showPane('appearance');
     })();
   </script>
 </body>
