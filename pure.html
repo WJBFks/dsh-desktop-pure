@@ -202,19 +202,22 @@
       font-weight: 500;
     }
     /* Layout switch (sidebar foot): 全屏 [slider] 卡片 */
+    /* sidebar is a flex column; flex:0 0 auto + align-self:center keeps the
+       row sized to its content (not stretched full-width) and centered. */
     .sidebar-foot {
       margin-top: auto;
       padding-top: 12px;
       display: flex;
       align-items: center;
-      justify-content: center;
       gap: 9px;
       cursor: pointer;
+      align-self: center;
+      flex: 0 0 auto;
     }
+    /* Track sizes to its knob (no fixed width): knob 16px + travel 14px +
+       2px padding each side = 34px. */
     .switch {
       position: relative;
-      width: 40px;
-      height: 20px;
       flex: 0 0 auto;
     }
     .switch input {
@@ -227,10 +230,12 @@
       cursor: pointer;
     }
     .switch .track {
-      position: absolute;
-      inset: 0;
+      display: block;
+      height: 20px;
+      padding: 2px;
       background: var(--border-l3);
       border-radius: 999px;
+      box-sizing: content-box;
       transition: background 0.16s;
     }
     .switch .knob {
