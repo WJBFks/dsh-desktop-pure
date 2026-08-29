@@ -705,15 +705,22 @@ async function connectWeb() {
 }
 
 /**
- * Show the dsh web page. If a live session is already there (our spawned child
- * still running), just reveal it — no reload. Otherwise connect / reconnect.
+ * Show the dsh web page. If a session is still there — our spawned child alive,
+ * OR a previously-loaded URL that still answers (covers a reused external
+ * dsh web, which has no child we track) — just reveal it, no reload. Only
+ * connect / reconnect when nothing is actually serving the web URL.
  */
 async function enterWebView() {
   const cfg = appState.cfg;
   if (cfg === null) return;
-  if (appState.url !== null && appState.childAlive) {
-    showWebOnly(); // preserve the existing session
-    return;
+  if (appState.url !== null) {
+    const reachable = appState.childAlive
+      ? true
+      : (await probe(appState.url, { assumeHarness: true })) === 'harness';
+    if (reachable) {
+      showWebOnly(); // preserve the existing session
+      return;
+    }
   }
   await connectWeb();
 }
