@@ -26,13 +26,14 @@
 | --- | --- |
 | **Zero intrusion into DSH** | The shell contains **no DSH code, frontend assets, or configuration**; it never patches, hooks, or modifies anything in DSH's installation |
 | **Read-only** | Every interaction with DSH is read-only: HTTP port probing, reading the stdout of a process *it* spawned, spawning/killing *its own* `dsh web` child |
-| **Pure WebUI shell** | The UI is **100%** served by `dsh web`; the shell only draws **its own** title bar / dropdown menus / loading page / tray (a few shell-owned static HTML files) and never injects into or modifies the Harness DOM |
+| **Pure WebUI shell** | The UI is served by `dsh web` by default; the shell only draws **its own** title bar / dropdown menus / loading page / **built-in DSH Desktop Pure page** / tray (a few shell-owned static HTML files) and never injects into or modifies the Harness DOM |
 | **No source modification** | The Harness page, the `window.__DSH_BOOT__` injection, and the `/api/*` RPC all come verbatim from the `dsh web` process; the shell just loads it and wraps it in desktop chrome |
 
 ## Features
 
 - **Port policy (single port, never silently drifts)**: reuse first (a Harness already on the port → reused, marked "reused"); free port → auto-spawn `dsh web`; held by another process → dialog with **process name + PID**, "Retry / Close".
-- **Self-drawn one-row title bar**: status dot (🟢 connected / 🟡 starting / 🔴 disconnected) + `File / View / Server` menus (pinned directly under the button, hover-switch while open) + "open in browser" + window controls (drawn on Win/Linux, native traffic lights on macOS); window title pinned to *DSH Desktop Pure*.
+- **Self-drawn one-row title bar**: status dot (🔵 Pure page / 🟢 connected / 🟡 starting / 🔴 disconnected) + `File / View / Server` menus (pinned directly under the button, hover-switch while open) + "open in browser" + window controls (drawn on Win/Linux, native traffic lights on macOS); window title pinned to *DSH Desktop Pure*.
+- **Built-in DSH Desktop Pure page**: the whale icon left of `File` in the title bar opens a dropdown to switch **DSH Desktop Pure / DSH Web**. The Pure page mirrors the DSH Web settings-page style (Appearance / Connection / About), supports light / dark, and is **fully independent of dsh web** — it works even when the server is down. The app starts on DSH Web; if it can't connect, it falls back to the Pure page instead of exiting.
 - **System tray**: `✕` or "File → Minimize to tray" hides the window while **the dsh server keeps running in the background**; tray right-click: Show window / Restart dsh server / Quit.
 - **Restart dsh server**: one-click restart (works for self-spawned and reused instances) with a theme-aware loading page; the app **never quits** on restart; failures show a non-blocking warning and are retryable.
 - **Theme**: light / dark / follow system (`nativeTheme`, persisted to `userData/theme.json`); shell UI re-skins automatically.

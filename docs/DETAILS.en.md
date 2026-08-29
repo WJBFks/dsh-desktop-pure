@@ -7,8 +7,9 @@
 ## Behavior
 
 - **Lifecycle**: `✕` / "File → Minimize to tray" hides the window into the tray (the dsh server keeps running); tray "Quit" or "File → Quit" truly exits and cleans up the `dsh web` process tree **the shell itself spawned** (Win: `taskkill /T /F`; POSIX: SIGTERM).
+- **Built-in DSH Desktop Pure page**: the whale icon left of `File` in the title bar opens a dropdown to switch **DSH Desktop Pure / DSH Web**. The Pure page is a shell-owned, standalone page (Appearance theme / DSH Web connection & actions / About) that mirrors the DSH Web settings-page style, supports light / dark, and is **fully independent of dsh web** — a downed server does not affect it. The app starts on DSH Web; if the server cannot be reached it falls back to the Pure page and **does not exit**.
 - **Reused services are not the shell's to manage**: when reusing an existing `dsh web`, the shell holds no handle to it and will not kill it on exit (avoiding killing an instance you started manually).
-- **Unexpected dsh web exit** (self-spawned instances only): a dialog shows the exit code and the app quits. (Exception: exits during a restart are recognized as intentional — the loading page swaps in, the app stays up.)
+- **Unexpected dsh web exit / unreachable** (self-spawned instances only): the app falls back to the built-in DSH Desktop Pure page and shows the reason (**it no longer quits**); retry from the title-bar whale menu or the Pure page's "Open DSH Web" (Exception: exits during a restart are recognized as intentional — the loading page swaps in, the app stays up.)
 - **Self-test**: `npm run selftest` verifies the port-policy helpers (free/busy probing, occupant PID + name discovery; uses test port 3987, never touches 3080).
 - **Test stubs (dev only, not shipped)**: `tools/fake-dsh.js` / `fake-dsh.cmd` emulate `dsh web` (parses `web --no-open --port N`, prints the same URL line as real dsh, serves a "test stub" page); `tools/dummy-server.js` emulates a port occupant. Combined with `npm start -- --port=3987 --dsh=tools\fake-dsh.cmd` you can verify the spawn/conflict flow without touching real dsh data.
 
@@ -64,10 +65,11 @@ If a DSH release changes the page structure and port probing misjudges, the cons
 dsh-desktop-pure/
 ├── main.js              # main process: port policy / spawn·reuse / titlebar·menu·tray / theme / lifecycle
 ├── port-probe.js        # pure-Node port probing + occupant discovery (no Electron deps, self-testable)
-├── titlebar.html        # shell-owned: one-row title bar (status + menu buttons + open-in-browser + window controls + drag region)
+├── titlebar.html        # shell-owned: one-row title bar (DSH icon switcher + status + menu buttons + open-in-browser + window controls + drag region)
 ├── menu.html            # shell-owned: dropdown menu (fixed position, hover-switch, theme-aware)
 ├── loading.html         # shell-owned: loading page (shown during restart, theme-aware)
-├── preload.js           # Harness-page preload: read-only window.dshShell + passive click notice (closes menus)
+├── pure.html            # shell-owned: built-in DSH Desktop Pure page (independent of dsh web, theme-aware, mirrors DSH settings page)
+├── preload.js           # shared preload for Harness + Pure page: window.dshShell / window.dshPure + passive click notice
 ├── titlepreload.js      # title-bar preload: status/maximize subscriptions + menu/window-control IPC
 ├── menupreload.js       # menu preload: menu-data subscription + action callbacks
 ├── build/               # icons: icon-256.png / icon.ico (dark), icon-white-* (spare)

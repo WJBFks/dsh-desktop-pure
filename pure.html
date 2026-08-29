@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DSH Desktop Pure</title>
+  <style>
+    /*
+      DSH Desktop Pure — the shell's own page. Fully local (file://), no network,
+      independent of the dsh web server. Visual style follows the DSH Web UI
+      settings page: the `--dsw-*` design tokens (light set on :root, dark set
+      under prefers-color-scheme, which nativeTheme.themeSource controls).
+    */
+    :root {
+      /* Surfaces */
+      --bg-base: #ffffff;
+      --bg-layer-2: #ffffff;
+      --bg-module-platform: #f5f6f7;
+      /* Borders */
+      --border-l2: #0000001a;
+      --border-l3: #0000001f;
+      /* Text */
+      --label-primary: #0f1115;
+      --label-secondary: #61666b;
+      --label-tertiary: #81858c;
+      --label-caption: #adb2b8;
+      /* Interaction */
+      --interactive-hover: #2631480f;
+      --accent: #4176e6;
+      /* Buttons */
+      --button-primary-fill: #0f1115;
+      --button-primary-hover: #43454a;
+      --button-primary-fg: #ffffff;
+      /* States */
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --error: #ec1313;
+      --shadow: 0 0 1px 0 #0003, 0 0 4px 0 #00000005, 0 12px 32px 0 #00000014;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-base: #151517;
+        --bg-layer-2: #2c2c2e;
+        --bg-module-platform: #353638;
+        --border-l2: #ffffff1f;
+        --border-l3: #ffffff29;
+        --label-primary: #f9fafb;
+        --label-secondary: #cfd3d6;
+        --label-tertiary: #adb2b8;
+        --label-caption: #81858c;
+        --interactive-hover: #ffffff14;
+        --accent: #679efe;
+        --button-primary-fill: #f9fafb;
+        --button-primary-hover: #43454a;
+        --button-primary-fg: #0f1115;
+        --success: #22c55e;
+        --warn: #f59e0b;
+        --error: #f25a5a;
+      }
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg-base);
+      color: var(--label-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica,
+        Arial, sans-serif;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .page {
+      height: 100%;
+      overflow-y: auto;
+    }
+    .page::-webkit-scrollbar {
+      width: 8px;
+    }
+    .page::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .page::-webkit-scrollbar-thumb {
+      background: #e5e5e5;
+      border-radius: 4px;
+    }
+    .page::-webkit-scrollbar-thumb:hover {
+      background: #d4d4d4;
+    }
+    @media (prefers-color-scheme: dark) {
+      .page::-webkit-scrollbar-thumb {
+        background: #3c3c3d;
+      }
+      .page::-webkit-scrollbar-thumb:hover {
+        background: #545557;
+      }
+    }
+    .inner {
+      width: 100%;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 44px 24px 56px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Brand header */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-mark {
+      width: 52px;
+      height: 52px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-module-platform);
+      border: 1px solid var(--border-l2);
+      border-radius: 14px;
+      color: var(--label-primary);
+    }
+    .brand-mark svg {
+      display: block;
+    }
+    .brand-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .brand-name {
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 28px;
+      color: var(--label-primary);
+      letter-spacing: 0.2px;
+    }
+    .brand-sub {
+      font-size: 13px;
+      line-height: 18px;
+      color: var(--label-tertiary);
+    }
+    .brand-version {
+      font-size: 12px;
+      color: var(--label-caption);
+      border: 1px solid var(--border-l2);
+      border-radius: 999px;
+      padding: 3px 10px;
+      flex: 0 0 auto;
+    }
+
+    /* Panel */
+    .panel {
+      background: var(--bg-layer-2);
+      border: 1px solid var(--border-l2);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .section {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--border-l2);
+    }
+    .section:last-child {
+      border-bottom: none;
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 22px;
+      color: var(--label-primary);
+    }
+    .section-desc {
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--label-tertiary);
+      margin-top: 5px;
+    }
+
+    /* Appearance cubes (light / dark / system) */
+    .cube-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .cube {
+      flex: 1 1 150px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      padding: 18px 12px;
+      background: transparent;
+      border: 1px solid var(--border-l2);
+      border-radius: 12px;
+      color: var(--label-primary);
+      font: inherit;
+      font-size: 13px;
+      line-height: 18px;
+      cursor: pointer;
+      transition: background 0.16s, border-color 0.16s;
+    }
+    .cube:hover:not(.selected) {
+      background: var(--interactive-hover);
+    }
+    .cube.selected {
+      background: var(--bg-module-platform);
+      border-color: var(--accent);
+    }
+    .cube svg {
+      display: block;
+    }
+
+    /* Rows (title + desc + control/value) */
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-l2);
+    }
+    .section .row:last-child {
+      border-bottom: none;
+    }
+    .row-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .row-title {
+      font-size: 14px;
+      line-height: 20px;
+      color: var(--label-primary);
+    }
+    .row-desc {
+      font-size: 12px;
+      line-height: 17px;
+      color: var(--label-tertiary);
+      word-break: break-word;
+    }
+    .val {
+      font-size: 13px;
+      color: var(--label-secondary);
+      flex: 0 0 auto;
+    }
+    .val-wide {
+      text-align: right;
+      flex: 0 1 auto;
+      max-width: 56%;
+    }
+    .row-actions {
+      border-bottom: none;
+      padding-top: 16px;
+    }
+
+    /* Status pill */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      color: var(--label-secondary);
+      background: var(--bg-module-platform);
+      border: 1px solid var(--border-l2);
+      border-radius: 999px;
+      padding: 5px 12px;
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    .pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--label-caption);
+      display: inline-block;
+      flex: 0 0 auto;
+    }
+    .pill-dot.ok {
+      background: var(--success);
+      box-shadow: 0 0 5px var(--success);
+    }
+    .pill-dot.warn {
+      background: var(--warn);
+      box-shadow: 0 0 5px var(--warn);
+    }
+    .pill-dot.err {
+      background: var(--error);
+      box-shadow: 0 0 5px var(--error);
+    }
+
+    /* Buttons */
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      border: none;
+      cursor: pointer;
+      font: inherit;
+      border-radius: 18px;
+      height: 36px;
+      padding: 0 18px;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.12s;
+      white-space: nowrap;
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    .btn-primary {
+      background: var(--button-primary-fill);
+      color: var(--button-primary-fg);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--button-primary-hover);
+    }
+    .btn-secondary,
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border-l2);
+    }
+    .btn-secondary {
+      color: var(--label-primary);
+    }
+    .btn-ghost {
+      color: var(--label-secondary);
+    }
+    .btn-secondary:hover:not(:disabled),
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--interactive-hover);
+    }
+
+    /* Link */
+    .link {
+      color: var(--accent);
+      font-size: 13px;
+      text-decoration: none;
+      flex: 0 0 auto;
+      max-width: 56%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .link:hover {
+      text-decoration: underline;
+    }
+
+    .cube:focus-visible,
+    .btn:focus-visible,
+    .link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .foot {
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--label-caption);
+      text-align: center;
+      padding: 0 8px;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="inner">
+      <!-- Brand -->
+      <header class="brand">
+        <div class="brand-mark">
+          <svg width="34" height="34" viewBox="0 0 50 50" aria-hidden="true">
+            <path fill="currentColor" d="M48.8354 10.0479C48.3232 9.79199 48.1025 10.2798 47.8032 10.5278C47.7007 10.6079 47.6143 10.7119 47.5273 10.8076C46.7793 11.624 45.9048 12.1597 44.7622 12.0957C43.0923 12 41.666 12.5356 40.4058 13.8398C40.1377 12.2319 39.2476 11.272 37.8926 10.6558C37.1836 10.3359 36.4668 10.0156 35.9702 9.31982C35.6235 8.82373 35.5293 8.27197 35.356 7.72754C35.2456 7.3999 35.1353 7.06396 34.7651 7.00781C34.3633 6.94385 34.2056 7.2876 34.0479 7.57568C33.418 8.75195 33.1733 10.0479 33.1973 11.3599C33.2524 14.312 34.4736 16.6641 36.8999 18.3359C37.1758 18.5278 37.2466 18.7197 37.1597 19C36.9946 19.5757 36.7974 20.1357 36.624 20.7119C36.5137 21.0801 36.3486 21.1597 35.9624 21C34.6309 20.4321 33.481 19.5918 32.4644 18.5757C30.7393 16.8721 29.1792 14.9917 27.2334 13.52C26.7764 13.1758 26.3193 12.856 25.8467 12.5518C23.8618 10.584 26.1069 8.96777 26.627 8.77588C27.1704 8.57568 26.8159 7.8877 25.0591 7.896C23.3022 7.90381 21.6953 8.50391 19.647 9.30371C19.3477 9.42383 19.0322 9.51172 18.7095 9.58398C16.8501 9.22363 14.9199 9.14355 12.9033 9.37598C9.10596 9.80762 6.07275 11.6396 3.84326 14.7681C1.16455 18.5278 0.53418 22.7998 1.30664 27.2559C2.11768 31.9521 4.46582 35.8398 8.07373 38.8799C11.8159 42.0322 16.1255 43.5762 21.041 43.2803C24.0269 43.104 27.3516 42.6963 31.1016 39.4561C32.0469 39.936 33.0396 40.1279 34.686 40.272C35.9546 40.3921 37.1758 40.208 38.1211 40.0078C39.6021 39.688 39.4995 38.2881 38.9639 38.0322C34.623 35.9678 35.5762 36.8081 34.71 36.1279C36.9155 33.4639 40.2402 30.6958 41.54 21.728C41.6426 21.0161 41.5557 20.5679 41.54 19.9917C41.5322 19.6396 41.6108 19.5039 42.0049 19.4639C43.0923 19.3359 44.1479 19.0317 45.1167 18.4878C47.9292 16.9199 49.064 14.3438 49.3315 11.2559C49.3711 10.7837 49.3237 10.2959 48.8354 10.0479ZM24.3262 37.8398C20.1196 34.4639 18.0791 33.3521 17.2358 33.3999C16.4482 33.4482 16.5898 34.3682 16.7632 34.9678C16.9443 35.5601 17.1812 35.9683 17.5117 36.4878C17.7402 36.832 17.8979 37.3442 17.2832 37.728C15.9282 38.584 13.5728 37.4399 13.4624 37.3838C10.7207 35.7358 8.42822 33.5601 6.81348 30.584C5.25342 27.7197 4.34766 24.6479 4.19775 21.3677C4.1582 20.5757 4.38672 20.2959 5.15869 20.1519C6.17529 19.96 7.22314 19.9199 8.23926 20.0718C12.5327 20.7119 16.1885 22.6719 19.2529 25.7759C21.002 27.5439 22.3252 29.6558 23.6885 31.7202C25.1377 33.9121 26.6978 36 28.6831 37.7119C29.3843 38.312 29.9434 38.7681 30.479 39.104C28.8643 39.2881 26.1699 39.3281 24.3262 37.8398ZM26.3433 24.6001C26.3433 24.248 26.6191 23.9678 26.9658 23.9678C27.0444 23.9678 27.1152 23.9839 27.1782 24.0078C27.2651 24.04 27.3438 24.0879 27.4067 24.1602C27.5171 24.272 27.5801 24.4321 27.5801 24.6001C27.5801 24.9521 27.3042 25.2319 26.9575 25.2319C26.6108 25.2319 26.3433 24.9521 26.3433 24.6001ZM32.6064 27.8799C32.2046 28.0479 31.8027 28.1919 31.4165 28.208C30.8179 28.2397 30.1641 27.9922 29.8096 27.688C29.2583 27.2158 28.8643 26.9521 28.6987 26.1279C28.6279 25.7759 28.6675 25.2319 28.7305 24.9199C28.8721 24.248 28.7144 23.8159 28.2495 23.4238C27.8716 23.104 27.3911 23.0161 26.8633 23.0161C26.666 23.0161 26.4849 22.9277 26.3511 22.856C26.1304 22.7441 25.9492 22.4639 26.1226 22.1201C26.1777 22.0078 26.4458 21.7358 26.5088 21.688C27.2256 21.272 28.0527 21.4077 28.8169 21.7197C29.5259 22.0161 30.0615 22.5601 30.834 23.3281C31.6216 24.2559 31.7632 24.5117 32.2124 25.208C32.5669 25.752 32.8901 26.312 33.1104 26.9521C33.2446 27.3521 33.0713 27.6802 32.6064 27.8799Z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-name">DSH Desktop Pure</div>
+          <div class="brand-sub">DeepSeek Harness · 桌面外壳</div>
+        </div>
+        <div class="brand-version" id="brandVersion">v—</div>
+      </header>
+
+      <section class="panel">
+        <!-- Appearance -->
+        <div class="section">
+          <div class="section-title">外观</div>
+          <div class="section-desc">选择界面主题，将实时应用于整个 DSH Desktop Pure。</div>
+          <div class="cube-row" id="themeCubes">
+            <button class="cube" data-theme="light" type="button" aria-pressed="false">
+              <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M11.3496 8C11.3496 6.14985 9.85015 4.65039 8 4.65039C6.14985 4.65039 4.65039 6.14985 4.65039 8C4.65039 9.85015 6.14985 11.3496 8 11.3496C9.85015 11.3496 11.3496 9.85015 11.3496 8ZM12.6504 8C12.6504 10.5681 10.5681 12.6504 8 12.6504C5.43188 12.6504 3.34961 10.5681 3.34961 8C3.34961 5.43188 5.43188 3.34961 8 3.34961C10.5681 3.34961 12.6504 5.43188 12.6504 8Z"/>
+                <path fill="currentColor" d="M8.65039 0.5V2.5H7.34961V0.5H8.65039Z"/><path fill="currentColor" d="M8.65039 13.5V15.5H7.34961V13.5H8.65039Z"/>
+                <path fill="currentColor" d="M3.15808 2.24035L4.57229 3.65456L3.6525 4.57435L2.23829 3.16014L3.15808 2.24035Z"/><path fill="currentColor" d="M12.3505 11.4327L13.7647 12.8469L12.8449 13.7667L11.4307 12.3525L12.3505 11.4327Z"/>
+                <path fill="currentColor" d="M2.24537 12.8469L3.65958 11.4327L4.57937 12.3525L3.16516 13.7667L2.24537 12.8469Z"/><path fill="currentColor" d="M11.4377 3.65455L12.852 2.24033L13.7718 3.16012L12.3575 4.57434L11.4377 3.65455Z"/>
+                <path fill="currentColor" d="M0.5 7.35461H2.5V8.6554H0.5Z"/><path fill="currentColor" d="M13.5 7.35461H15.5V8.6554H13.5Z"/>
+              </svg>
+              <span>浅色</span>
+            </button>
+            <button class="cube" data-theme="dark" type="button" aria-pressed="false">
+              <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M13.2764 9.52324C12.5607 9.97754 11.7177 10.242 10.7812 10.242C8.11386 10.2419 5.95042 8.07997 5.9502 5.41289C5.9502 4.48128 6.21453 3.61071 6.67188 2.87285C4.30332 3.4658 2.54992 5.60845 2.5498 8.16093C2.5498 11.1712 4.99103 13.6102 8 13.6102C10.5383 13.6102 12.6709 11.8724 13.2764 9.52324ZM7.05078 5.41289C7.051 7.47224 8.72116 9.1423 10.7812 9.14238C11.9248 9.14238 12.887 8.63397 13.5781 7.8084C13.7266 7.63106 13.9701 7.56547 14.1875 7.64433C14.4049 7.72329 14.5497 7.9297 14.5498 8.16093C14.5498 11.7766 11.6161 14.7098 8 14.7098C4.38402 14.7098 1.4502 11.7792 1.4502 8.16093C1.45033 4.54322 4.3812 1.61015 8 1.61015C8.23027 1.61015 8.43585 1.75352 8.51562 1.96953C8.59536 2.18554 8.53241 2.42829 8.35742 2.57793C7.55573 3.26311 7.05078 4.27876 7.05078 5.41289Z"/>
+              </svg>
+              <span>深色</span>
+            </button>
+            <button class="cube" data-theme="system" type="button" aria-pressed="false">
+              <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M12.1665 13.5811V14.7803H3.66651V13.5811H12.1665Z"/>
+                <path fill="currentColor" d="M13.4453 7.02379C13.4453 6.04702 13.4452 5.3616 13.3887 4.83434C13.3333 4.31828 13.2302 4.02378 13.0723 3.80309C12.9446 3.62475 12.7877 3.46883 12.6094 3.34117C12.3887 3.18328 12.0942 3.08007 11.5781 3.02477C11.0508 2.96829 10.3655 2.96715 9.38867 2.96715H6.61035C5.63359 2.96715 4.94816 2.96827 4.4209 3.02477C3.90486 3.0801 3.61034 3.18321 3.38965 3.34117C3.21143 3.46878 3.05534 3.62487 2.92774 3.80309C2.76977 4.02377 2.66667 4.3183 2.61133 4.83434C2.55483 5.3616 2.55371 6.04702 2.55371 7.02379C2.55371 8.0006 2.55485 8.68596 2.61133 9.21324C2.66663 9.72936 2.76983 10.0238 2.92774 10.2445C3.0554 10.4228 3.21131 10.5797 3.38965 10.7074C3.61034 10.8654 3.90484 10.9685 4.4209 11.0238C4.94816 11.0803 5.63359 11.0804 6.61035 11.0804H9.38867C10.3654 11.0804 11.0508 11.0803 11.5781 11.0238C12.0941 10.9685 12.3887 10.8652 12.6094 10.7074C12.7877 10.5797 12.9446 10.4229 13.0723 10.2445C13.2301 10.0238 13.3334 9.72927 13.3887 9.21324C13.4452 8.68596 13.4453 8.00058 13.4453 7.02379ZM14.6455 7.02379C14.6455 7.97428 14.646 8.73509 14.5811 9.34117C14.5149 9.95828 14.3756 10.4858 14.0479 10.9437C13.8436 11.229 13.5938 11.4788 13.3086 11.683C12.8507 12.0108 12.3232 12.15 11.7061 12.2162C11.1 12.2811 10.3391 12.2806 9.38867 12.2806H6.61035C5.66018 12.2806 4.89991 12.2811 4.29395 12.2162C3.67684 12.15 3.14935 12.0108 2.69141 11.683C2.40613 11.4788 2.15639 11.229 1.95215 10.9437C1.62436 10.4858 1.4841 9.95828 1.41797 9.34117C1.35305 8.73511 1.35449 7.97424 1.35449 7.02379C1.35449 6.07366 1.35308 5.31333 1.41797 4.70738C1.4841 4.09028 1.62436 3.56279 1.95215 3.10485C2.15638 2.81956 2.40613 2.56982 2.69141 2.36559C3.14935 2.03779 3.67684 1.89753 4.29395 1.83141C4.8999 1.76652 5.66022 1.76793 6.61035 1.76793H9.38867C10.3391 1.76793 11.1 1.76649 11.7061 1.83141C12.3232 1.89753 12.8507 2.03779 13.3086 2.36559C13.5939 2.56982 13.8436 2.81957 14.0479 3.10485C14.3756 3.56279 14.5149 4.09028 14.5811 4.70738C14.646 5.31335 14.6455 6.07362 14.6455 7.02379Z"/>
+              </svg>
+              <span>跟随系统</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- DSH Web connection -->
+        <div class="section">
+          <div class="section-title">DSH Web</div>
+          <div class="section-desc">
+            DSH Desktop Pure 完全独立于 DSH Web —— 即使 dsh web 服务未启动，本页也照常可用。
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">连接状态</div>
+              <div class="row-desc" id="connDesc">dsh web 服务尚未启动</div>
+            </div>
+            <span class="pill"><i class="pill-dot" id="connDot"></i><span id="connText">未连接</span></span>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">端口</div>
+              <div class="row-desc">dsh web 服务监听的本地端口</div>
+            </div>
+            <div class="val" id="valPort">—</div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">启动命令</div>
+              <div class="row-desc">用于启动 dsh web 的可执行文件</div>
+            </div>
+            <div class="val" id="valDsh">—</div>
+          </div>
+          <div class="row row-actions">
+            <div class="btn-group">
+              <button class="btn btn-primary" id="btnOpenWeb" type="button">打开 DSH Web</button>
+              <button class="btn btn-secondary" id="btnOpenBrowser" type="button" disabled>在浏览器中打开</button>
+              <button class="btn btn-ghost" id="btnRestart" type="button">重启 dsh 服务器</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- About -->
+        <div class="section">
+          <div class="section-title">关于</div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">运行环境</div>
+            </div>
+            <div class="val val-wide" id="valEngine">—</div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">平台</div>
+            </div>
+            <div class="val" id="valPlatform">—</div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">项目仓库</div>
+            </div>
+            <a class="link" id="repoLink" href="https://github.com/WJBFks/dsh-desktop-pure"
+               target="_blank" rel="noreferrer">github.com/WJBFks/dsh-desktop-pure</a>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <div class="row-title">许可证 / 作者</div>
+            </div>
+            <div class="val">MIT · WJBFks (2026)</div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="foot">
+        本页由 DSH Desktop Pure 自带，随应用内置，不依赖网络或 dsh web 服务。
+      </footer>
+    </div>
+  </main>
+  <script>
+    (function () {
+      var api = window.dshPure;
+      var $ = function (id) { return document.getElementById(id); };
+      var connDot = $('connDot');
+      var connText = $('connText');
+      var connDesc = $('connDesc');
+      var valPort = $('valPort');
+      var valDsh = $('valDsh');
+      var valEngine = $('valEngine');
+      var valPlatform = $('valPlatform');
+      var brandVersion = $('brandVersion');
+      var btnOpenWeb = $('btnOpenWeb');
+      var btnOpenBrowser = $('btnOpenBrowser');
+      var btnRestart = $('btnRestart');
+      var repoLink = $('repoLink');
+      var cubes = Array.prototype.slice.call(document.querySelectorAll('#themeCubes .cube'));
+
+      var lastInfo = null;
+
+      function platformName(p) {
+        return p === 'win32' ? 'Windows' : p === 'darwin' ? 'macOS' : p === 'linux' ? 'Linux' : String(p || '—');
+      }
+
+      function selectTheme(source) {
+        cubes.forEach(function (c) {
+          var on = c.getAttribute('data-theme') === source;
+          c.classList.toggle('selected', on);
+          c.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      }
+
+      function applyConnection(info) {
+        var st = info.status || {};
+        if (info.url) {
+          connDot.className = 'pill-dot ok';
+          connText.textContent = '已连接';
+          connDesc.textContent = info.url;
+          btnOpenBrowser.disabled = false;
+        } else if (st.state === 'starting') {
+          connDot.className = 'pill-dot warn';
+          connText.textContent = '启动中';
+          connDesc.textContent = '正在启动 dsh web 服务…';
+          btnOpenBrowser.disabled = true;
+        } else if (st.reason) {
+          connDot.className = 'pill-dot err';
+          connText.textContent = '未连接';
+          connDesc.textContent = st.reason;
+          btnOpenBrowser.disabled = true;
+        } else {
+          connDot.className = 'pill-dot';
+          connText.textContent = '未连接';
+          connDesc.textContent = 'dsh web 服务尚未启动';
+          btnOpenBrowser.disabled = true;
+        }
+      }
+
+      function applyInfo(info) {
+        if (!info || typeof info !== 'object') return;
+        lastInfo = info;
+        brandVersion.textContent = 'v' + (info.version || '—');
+        var v = info.versions || {};
+        valEngine.textContent =
+          'Electron ' + (v.electron || '—') + ' · Chromium ' + (v.chrome || '—') + ' · Node ' + (v.node || '—');
+        valPlatform.textContent = platformName(info.platform);
+        valPort.textContent = String(info.port != null ? info.port : '—');
+        valDsh.textContent = info.dshBin || '—';
+        selectTheme(info.themeSource);
+        applyConnection(info);
+      }
+
+      if (api) {
+        // Initial snapshot, then live updates (view / theme / server state).
+        Promise.resolve(api.getInfo()).then(applyInfo).catch(function () {
+          /* ignore — page still renders, values stay at placeholders */
+        });
+        api.subscribe(applyInfo);
+
+        cubes.forEach(function (c) {
+          c.addEventListener('click', function () {
+            api.setTheme(c.getAttribute('data-theme'));
+          });
+        });
+        btnOpenWeb.addEventListener('click', function () { api.openWeb(); });
+        btnRestart.addEventListener('click', function () { api.restartServer(); });
+        btnOpenBrowser.addEventListener('click', function () {
+          if (lastInfo && lastInfo.url) api.openExternal(lastInfo.url);
+        });
+        repoLink.addEventListener('click', function (e) {
+          e.preventDefault();
+          api.openExternal('https://github.com/WJBFks/dsh-desktop-pure');
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

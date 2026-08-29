@@ -365,6 +365,8 @@ function setThemeSource(source) {
   if (win !== null && !win.isDestroyed()) win.setBackgroundColor(currentWindowBg());
   // If a menu is open, refresh it so the theme radio group reflects the change.
   if (openMenu !== null) openMenuAt(openMenu, currentMenuLeft);
+  // Keep the Pure page's "current theme" label in sync with the new theme.
+  pushPureInfo();
 }
 
 // ---------------------------------------------------------------------------
@@ -376,13 +378,15 @@ let harnessView = null; // WebContentsView: the harness page (bottom)
 let titlebarView = null; // WebContentsView: the one-row title bar (middle)
 let menuView = null; // WebContentsView: the dropdown menu (top, transparent)
 let tray = null; // System tray icon (hide-to-tray; server keeps running while hidden)
-let currentStatus = { state: 'starting' };
+let currentStatus = { state: 'starting', view: 'web' };
 let openMenu = null; // 'file' | 'view' | 'server' | null
 let currentMenuLeft = 0; // content-relative x of the open menu's button
 
 /** Push a status to the title bar renderer. */
 function setStatus(next) {
-  currentStatus = next;
+  // Every status carries the current view so the title bar can tell "on the
+  // Pure page" apart from "on the dsh web page".
+  currentStatus = Object.assign({ view: appState.view }, next);
   if (titlebarView !== null && !titlebarView.webContents.isDestroyed()) {
     titlebarView.webContents.send('dsh:status', currentStatus);
   }
@@ -544,6 +548,106 @@ function showLoading() {
 }
 
 // ---------------------------------------------------------------------------
+// View switching: the harness area shows either the shell's own "DSH Desktop
+// Pure" page (pure.html — fully local, no network) or the dsh web page (URL).
+// The Pure page is INDEPENDENT of the web server: it loads from file:// and
+// stays usable even when dsh web is down. The DSH icon menu in the title bar
+// (and the Pure page's "open DSH Web" action) switch between the two.
+// ---------------------------------------------------------------------------
+
+/** Show the shell's own DSH Desktop Pure page (independent of dsh web). */
+function enterPureView(reason) {
+  appState.view = 'pure';
+  if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
+    harnessView.webContents.loadFile(path.join(__dirname, 'pure.html'));
+  }
+  setStatus({ state: 'pure', reason });
+  refreshDshMenu();
+}
+
+/**
+ * Show the dsh web page. If we already resolved a URL, just (re)load it;
+ * otherwise run the full resolve (probe → reuse → spawn → conflict). Any
+ * failure falls back to the independent Pure page instead of exiting the app.
+ */
+async function enterWebView() {
+  const cfg = appState.cfg;
+  if (cfg === null) return;
+  // Already on a working web URL: just re-navigate (e.g. the user re-selects
+  // DSH Web after being on the Pure page).
+  if (appState.view === 'web' && appState.url !== null) {
+    if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
+      harnessView.webContents.loadURL(appState.url);
+    }
+    return;
+  }
+  appState.view = 'web';
+  showLoading();
+  setStatus({ state: 'starting', port: cfg.port });
+  try {
+    let url;
+    let child = null;
+    if (cfg.urlOverride !== undefined) {
+      // Explicit --url=/DSH_DESKTOP_URL: load it directly (no spawn).
+      url = cfg.urlOverride;
+    } else {
+      ({ url, child } = await resolveServer(cfg));
+    }
+    appState.url = url;
+    appState.child = child;
+    if (child !== null) bindChildExit(child);
+    if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
+      harnessView.webContents.loadURL(url);
+    }
+    setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
+    if (cfg.verbose) {
+      console.log(
+        `[DSH Desktop Pure] web view -> ${url}${child === null ? ' (reused)' : ' (spawned dsh web)'}`
+      );
+    }
+  } catch (err) {
+    // Degrade to the independent Pure page — never quit the app over dsh web.
+    enterPureView(err.message);
+    return;
+  }
+  refreshDshMenu();
+}
+
+/** Re-render the open DSH icon menu (radio state) and refresh the Pure page. */
+function refreshDshMenu() {
+  if (openMenu === 'dsh') openMenuAt('dsh', currentMenuLeft);
+  pushPureInfo();
+}
+
+/** Push the current state to the Pure page (only if it is the active view). */
+function pushPureInfo() {
+  const wc = mainContents();
+  if (appState.view === 'pure' && wc && !wc.isDestroyed()) {
+    wc.send('pure:info', buildPureInfo());
+  }
+}
+
+/** Snapshot of state the Pure page needs (version / theme / connection / …). */
+function buildPureInfo() {
+  const cfg = appState.cfg;
+  return {
+    version: app.getVersion(),
+    themeSource: nativeTheme.themeSource,
+    port: cfg ? cfg.port : DEFAULT_PORT,
+    dshBin: cfg ? cfg.dshBin : 'dsh',
+    url: appState.url,
+    view: appState.view,
+    status: currentStatus,
+    platform: process.platform,
+    versions: {
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // System tray (hide-to-tray; the dsh web server keeps running while hidden)
 // ---------------------------------------------------------------------------
 
@@ -614,6 +718,12 @@ function accText(acc) {
 function menuItems() {
   const src = nativeTheme.themeSource;
   return {
+    // DSH icon menu (left of 文件): switches the harness area between the
+    // shell's own Pure page and the dsh web page. Radio shows the active one.
+    dsh: [
+      { id: 'view-pure', label: 'DSH Desktop Pure', type: 'radio', checked: appState.view === 'pure' },
+      { id: 'view-web', label: 'DSH Web', type: 'radio', checked: appState.view === 'web' }
+    ],
     file: [
       { id: 'reload', label: '重新加载', accelerator: accText('CmdOrCtrl+R'), enabled: true },
       { id: 'reload-cache', label: '强制重新加载', accelerator: accText('CmdOrCtrl+Shift+R'), enabled: true },
@@ -648,6 +758,8 @@ function menuHeight(items) {
 
 /** Action handlers keyed by menu item id (shared by dropdown + accelerators). */
 const menuActions = {
+  'view-pure': () => enterPureView(),
+  'view-web': () => enterWebView(),
   reload: () => {
     const wc = mainContents();
     if (wc) wc.reload();
@@ -677,7 +789,7 @@ const menuActions = {
 /** Open (or switch to) a menu, docked directly beneath its button. */
 function openMenuAt(name, relLeft) {
   if (win === null || menuView === null) return;
-  if (!['file', 'view', 'server'].includes(name)) return;
+  if (!['dsh', 'file', 'view', 'server'].includes(name)) return;
   const items = menuItems()[name];
   const height = menuHeight(items);
   const [cw] = win.getContentSize();
@@ -812,6 +924,33 @@ ipcMain.on('titlebar:window-control', (_event, action) => {
 });
 
 // ---------------------------------------------------------------------------
+// DSH Desktop Pure page IPC (the shell's own, independent local page)
+// ---------------------------------------------------------------------------
+
+/** Snapshot of state for the Pure page (handled so the renderer can await). */
+ipcMain.handle('pure:get-info', () => buildPureInfo());
+
+/** Theme choice from the Pure page's appearance row (system / light / dark). */
+ipcMain.on('pure:set-theme', (_event, source) => {
+  setThemeSource(String(source));
+});
+
+/** "Open DSH Web" from the Pure page: resolve + load the web view. */
+ipcMain.on('pure:open-web', () => {
+  enterWebView();
+});
+
+/** Hand a web URL to the system browser (about / repo links from the Pure page). */
+ipcMain.on('pure:open-external', (_event, raw) => {
+  if (typeof raw === 'string' && /^https?:\/\//i.test(raw)) openExternalSafely(raw);
+});
+
+/** "Restart dsh server" from the Pure page. */
+ipcMain.on('pure:restart', () => {
+  restartServer();
+});
+
+// ---------------------------------------------------------------------------
 // Server restart
 // ---------------------------------------------------------------------------
 
@@ -865,22 +1004,14 @@ async function restartServer() {
     appState.url = url;
     appState.child = child;
     if (child !== null) bindChildExit(child);
+    appState.view = 'web';
     loadMain(url);
     setStatus({ state: 'online', url, port: cfg.port, spawned: true });
+    refreshDshMenu();
   } catch (err) {
-    // Degrade to a visible, NON-blocking warning: keep the window and the
-    // loading page so the user can retry — do not quit the app.
-    setStatus({ state: 'offline', reason: err.message });
-    const w = BaseWindow.getAllWindows()[0];
-    const opts = {
-      type: 'warning',
-      title: '重启失败',
-      message: `重启 dsh 服务器失败：\n\n${err.message}`,
-      detail: '请确认 dsh web 可正常启动（检查 dsh 安装与端口占用），然后重试。',
-      buttons: ['好的']
-    };
-    if (w !== undefined) dialog.showMessageBox(w, opts);
-    else dialog.showMessageBox(opts);
+    // Degrade to the independent Pure page (non-blocking): the user can retry
+    // from the title bar or the Pure page — never quit the app.
+    enterPureView(`重启 dsh 服务器失败：${err.message}`);
   } finally {
     restarting = false;
   }
@@ -890,7 +1021,7 @@ async function restartServer() {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-const appState = { cfg: null, child: null, url: null };
+const appState = { cfg: null, child: null, url: null, view: 'web' };
 let quitting = false;
 // True while a restart is in flight: the child's intentional kill must NOT
 // trigger the "dsh web exited" dialog / app quit.
@@ -906,17 +1037,12 @@ function bindChildExit(child) {
     // Ignore exits caused by us quitting or by a restart (intentional kill).
     if (quitting || restarting) return;
     const why = code !== null ? `code ${code}` : `signal ${signal}`;
-    setStatus({ state: 'offline', reason: why });
-    const opts = {
-      type: 'error',
-      title: 'dsh web 已退出',
-      message: `dsh web 进程已退出（${why}）。\n\n正在关闭窗口。`,
-      buttons: ['关闭']
-    };
-    const w = BaseWindow.getAllWindows()[0];
-    if (w !== undefined) dialog.showMessageBoxSync(w, opts);
-    else dialog.showMessageBoxSync(opts);
-    app.quit();
+    // The dsh web process died. Fall back to the independent Pure page rather
+    // than quitting the whole app — the Pure page keeps working without the
+    // server, and the user can retry from the title bar or the Pure page.
+    appState.child = null;
+    appState.url = null;
+    enterPureView(`dsh web 已退出（${why}）`);
   });
 }
 
@@ -924,37 +1050,11 @@ async function main() {
   const cfg = resolveConfig();
   appState.cfg = cfg;
 
-  // The window appears immediately; the title bar shows "starting" while the
-  // server is resolved/spawned, then flips to "online" once the page loads.
+  // The window appears immediately. The default view is DSH Web (per the user's
+  // preference); if the server cannot be reached we fall back to the
+  // independent DSH Desktop Pure page instead of exiting the app.
   createWindow();
-  setStatus({ state: 'starting', port: cfg.port });
-
-  let url;
-  let child = null;
-  try {
-    if (cfg.urlOverride !== undefined) {
-      url = cfg.urlOverride;
-    } else {
-      ({ url, child } = await resolveServer(cfg));
-    }
-  } catch (err) {
-    setStatus({ state: 'offline', reason: err.message });
-    fatal(`无法启动 DeepSeek Harness Web GUI：\n\n${err.message}`);
-    return;
-  }
-
-  appState.url = url;
-  appState.child = child;
-  if (child !== null) bindChildExit(child);
-
-  loadMain(url);
-  setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
-
-  if (cfg.verbose) {
-    console.log(
-      `[DSH Desktop Pure] window -> ${url}${child === null ? ' (reused existing server)' : ' (spawned dsh web)'}`
-    );
-  }
+  await enterWebView();
 }
 
 if (!app.requestSingleInstanceLock()) {

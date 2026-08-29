@@ -7,8 +7,9 @@
 ## 行为说明
 
 - **生命周期**：`✕` / 「文件 → 最小化到托盘」= 隐藏到托盘（dsh 服务器继续运行）；托盘「退出」或「文件 → 退出」= 真正退出，并清理**自己拉起的** `dsh web` 进程树（Win: `taskkill /T /F`；POSIX: SIGTERM）。
+- **内置 DSH Desktop Pure 页**：标题栏「文件」左侧的鲸鱼图标可下拉切换 **DSH Desktop Pure / DSH Web**。DSH Desktop Pure 是壳自带的独立页面（外观主题 / DSH Web 连接与操作 / 关于），参考 DSH Web 设置页风格，支持浅色 / 深色，**完全独立于 dsh web**——服务未启动也不影响它。启动默认进入 DSH Web；若 dsh web 无法就绪则自动回退到该页，**不退出应用**。
 - **复用的服务不归壳管**：复用了已有 `dsh web` 时，壳不持有它的进程句柄，退出时不会杀它（避免误杀你手动启动的实例）。
-- **dsh web 意外退出**（仅自己拉起的实例）：弹窗告知退出码并退出应用（重启场景除外——重启期间的退出被识别为有意行为，只换加载页、不退出）。
+- **dsh web 意外退出 / 无法就绪**（仅自己拉起的实例）：自动回退到内置 DSH Desktop Pure 页并提示原因（**不再退出应用**）；可从标题栏鲸鱼菜单或纯页「打开 DSH Web」重试（重启场景除外——重启期间的退出被识别为有意行为，只换加载页、不退出）。
 - **自测**：`npm run selftest` 验证端口策略辅助函数（空闲/占用探测、占用进程 PID + 名称识别；使用 3987 测试端口，不碰 3080）。
 - **测试桩（开发用，不随包发布）**：`tools/fake-dsh.js` / `fake-dsh.cmd` 模拟 `dsh web`（解析 `web --no-open --port N`、打印与真实 dsh 一致的 URL 行、伺服一个「测试桩」页面），`tools/dummy-server.js` 模拟端口占用假服务。配合 `npm start -- --port=3987 --dsh=tools\fake-dsh.cmd` 可在不触碰真实 dsh 数据的情况下验证拉起 / 冲突全流程。
 
@@ -64,10 +65,11 @@ npm update -g @deepseek-ai/dsh
 dsh-desktop-pure/
 ├── main.js              # 主进程：端口策略 / spawn·复用 / 标题栏·菜单·托盘 / 主题 / 生命周期
 ├── port-probe.js        # 纯 Node 端口探测 + 占用进程识别（无 Electron 依赖，可独立自测）
-├── titlebar.html        # 壳自有：单行标题栏（状态点 + 菜单按钮 + 浏览器打开 + 窗口控制 + 拖拽区）
+├── titlebar.html        # 壳自有：单行标题栏（DSH 图标切换菜单 + 状态点 + 菜单按钮 + 浏览器打开 + 窗口控制 + 拖拽区）
 ├── menu.html            # 壳自有：下拉菜单（固定位置弹出、hover 切换、主题感知）
 ├── loading.html         # 壳自有：加载页（重启期间显示，主题感知）
-├── preload.js           # Harness 页面 preload：只读 window.dshShell + 被动点击通知（关菜单）
+├── pure.html            # 壳自有：内置 DSH Desktop Pure 页（独立于 dsh web，主题感知，参考 DSH 设置页）
+├── preload.js           # Harness + Pure 页共用 preload：window.dshShell / window.dshPure + 被动点击通知
 ├── titlepreload.js      # 标题栏 preload：状态/最大化订阅 + 菜单/窗口控制 IPC
 ├── menupreload.js       # 菜单 preload：菜单数据订阅 + 动作回传
 ├── build/               # 图标：icon-256.png / icon.ico（深色）、icon-white-*（备用）
