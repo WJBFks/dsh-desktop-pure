@@ -531,7 +531,11 @@ function createWindow() {
       webSecurity: true
     }
   });
-  pureView.webContents.loadFile(path.join(__dirname, 'pure.html'));
+  // Timestamped query busts Electron's file:// disk cache so layout/theme edits
+  // to pure.html are always picked up on (re)launch.
+  pureView.webContents.loadFile(path.join(__dirname, 'pure.html'), {
+    query: { v: String(Date.now()) }
+  });
 
   // Transient loading overlay (transparent when hidden). Shown only while dsh
   // web is starting / restarting — it never replaces the web or pure page.
