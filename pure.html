@@ -201,20 +201,20 @@
       color: var(--label-primary);
       font-weight: 500;
     }
-    /* Layout switch (sidebar foot): full-window / centered-card */
+    /* Layout switch (sidebar foot): 全屏 [slider] 卡片 */
     .sidebar-foot {
       margin-top: auto;
       padding-top: 12px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 9px;
       cursor: pointer;
     }
     .switch {
       position: relative;
-      width: 34px;
+      flex: 1 1 auto;
+      min-width: 0;
       height: 20px;
-      flex: 0 0 auto;
     }
     .switch input {
       position: absolute;
@@ -259,9 +259,19 @@
       outline-offset: 2px;
     }
     .switch-label {
+      flex: 0 0 auto;
       font-size: 12px;
       line-height: 16px;
-      color: var(--label-secondary);
+      color: var(--label-tertiary);
+      white-space: nowrap;
+    }
+    /* active (selected) end lights up: full on the left, card on the right */
+    .sidebar-foot .switch-label:first-of-type {
+      color: var(--label-primary);
+    }
+    .sidebar-foot .switch input:not(:checked) ~ .switch-label:last-of-type,
+    .sidebar-foot .switch input:checked ~ .switch-label:first-of-type {
+      color: var(--label-tertiary);
     }
 
     /* Right side: top (title) + bottom (content), stacked */
@@ -564,12 +574,13 @@
           </button>
         </div>
         <label class="sidebar-foot" title="在「全屏」与「卡片」布局之间切换">
+          <span class="switch-label">全屏</span>
           <span class="switch">
             <input type="checkbox" id="layoutSwitch" />
             <span class="track"></span>
             <span class="knob"></span>
           </span>
-          <span class="switch-label" id="layoutLabel">布局：全屏</span>
+          <span class="switch-label">卡片</span>
         </label>
       </nav>
 
@@ -701,7 +712,6 @@
       var btnRestart = $('btnRestart');
       var repoLink = $('repoLink');
       var layoutSwitch = $('layoutSwitch');
-      var layoutLabel = $('layoutLabel');
       var cubes = Array.prototype.slice.call(document.querySelectorAll('#themeCubes .cube'));
       var navCells = Array.prototype.slice.call(document.querySelectorAll('#navList .nav-cell'));
       var heads = Array.prototype.slice.call(document.querySelectorAll('.pane-head'));
@@ -723,12 +733,14 @@
         bodies.forEach(function (b) { b.hidden = b.getAttribute('data-section') !== name; });
       }
 
-      // Full-window vs centered-card layout (persisted by the shell).
+      // Full-window vs centered-card layout (persisted by the shell). Applied
+      // immediately when the user flips the switch (no round-trip needed); the
+      // push from the main process keeps it authoritative but idempotent.
       function applyLayout(mode) {
         var card = mode === 'card';
+        if (document.body.classList.contains('is-card') === card) return;
         document.body.classList.toggle('is-card', card);
         if (layoutSwitch) layoutSwitch.checked = card;
-        if (layoutLabel) layoutLabel.textContent = card ? '布局：卡片' : '布局：全屏';
       }
 
       function selectTheme(source) {
@@ -787,9 +799,10 @@
           });
         });
 
-        // Layout switch (full-window / card).
+        // Layout switch (full-window / card): apply immediately + persist.
         if (layoutSwitch) {
           layoutSwitch.addEventListener('change', function () {
+            applyLayout(layoutSwitch.checked ? 'card' : 'full');
             api.setLayout(layoutSwitch.checked ? 'card' : 'full');
           });
         }
