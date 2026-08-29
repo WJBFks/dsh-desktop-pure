@@ -743,6 +743,13 @@ function pushPureInfo() {
   }
 }
 
+// Release notes shown on the Pure page's About section. Keep in sync with
+// CHANGELOG.md; keyed by the app version (app.getVersion()).
+const PURE_CHANGELOG = {
+  '0.2.0': '内置「桌面端配置」页（外观 / DSH Web / 关于）· 标题栏「页面」菜单切换 · 切换时保留 dsh web 会话 · 全屏 / 卡片布局切换（持久化）· 连接失败回退而非退出 · 命名统一 DSH_DESKTOP_*',
+  '0.1.0': '首个发布版本 · Windows 安装包 · 单端口策略（复用 / 拉起 / 冲突检测）· 系统托盘 · 一键重启 dsh web · 浅 / 深 / 跟随系统主题'
+};
+
 /** Snapshot of state the Pure page needs (version / theme / connection / …). */
 function buildPureInfo() {
   const cfg = appState.cfg;
@@ -760,7 +767,8 @@ function buildPureInfo() {
       electron: process.versions.electron,
       chrome: process.versions.chrome,
       node: process.versions.node
-    }
+    },
+    changelog: PURE_CHANGELOG[app.getVersion()] || ''
   };
 }
 
@@ -840,7 +848,7 @@ function menuItems() {
     // DSH icon menu (left of 文件): switches the harness area between the
     // shell's own Pure page and the dsh web page. Radio shows the active one.
     dsh: [
-      { id: 'view-pure', label: 'DSH Desktop Pure', type: 'radio', checked: appState.view === 'pure' },
+      { id: 'view-pure', label: '桌面端配置', type: 'radio', checked: appState.view === 'pure' },
       { id: 'view-web', label: 'DSH Web', type: 'radio', checked: appState.view === 'web' }
     ],
     file: [

@@ -668,6 +668,12 @@
             </div>
             <div class="row">
               <div class="row-text">
+                <div class="row-title">更新日志</div>
+              </div>
+              <div class="val val-wide" id="valChangelog">—</div>
+            </div>
+            <div class="row">
+              <div class="row-text">
                 <div class="row-title">运行环境</div>
               </div>
               <div class="val val-wide" id="valEngine">—</div>
@@ -707,6 +713,7 @@
       var valDsh = $('valDsh');
       var valEngine = $('valEngine');
       var valPlatform = $('valPlatform');
+      var valChangelog = $('valChangelog');
       var brandVersion = $('brandVersion');
       var btnOpenWeb = $('btnOpenWeb');
       var btnOpenBrowser = $('btnOpenBrowser');
@@ -787,6 +794,7 @@
         valPlatform.textContent = platformName(info.platform);
         valPort.textContent = String(info.port != null ? info.port : '—');
         valDsh.textContent = info.dshBin || '—';
+        valChangelog.textContent = info.changelog || '—';
         applyLayout(info.layout);
         selectTheme(info.themeSource);
         applyConnection(info);
