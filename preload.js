@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('dshPure', {
   setTheme(source) {
     ipcRenderer.send('pure:set-theme', String(source));
   },
+  // Full-window vs centered-card layout (persisted by the shell).
+  setLayout(mode) {
+    ipcRenderer.send('pure:set-layout', String(mode));
+  },
   // "Open DSH Web": resolve (probe → reuse → spawn) and show the web view.
   openWeb() {
     ipcRenderer.send('pure:open-web');

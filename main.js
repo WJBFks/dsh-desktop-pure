@@ -65,6 +65,8 @@ const MENU_SEP_H = 9;
 const MENU_PAD_V = 8;
 const LIGHT_BG = '#f3f4f6';
 const DARK_BG = '#111827';
+const LAYOUT = ['full', 'card']; // Pure page: full-window vs centered-card
+const DEFAULT_LAYOUT = 'full';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -348,6 +350,36 @@ function persistTheme(source) {
   } catch {
     /* best-effort persistence */
   }
+}
+
+// Pure-page layout preference (full-window default / centered card).
+function layoutFile() {
+  return path.join(app.getPath('userData'), 'layout.json');
+}
+
+function loadLayout() {
+  try {
+    const obj = JSON.parse(fs.readFileSync(layoutFile(), 'utf8'));
+    if (obj && LAYOUT.includes(obj.layout)) return obj.layout;
+  } catch {
+    /* missing/invalid → default to full-window */
+  }
+  return DEFAULT_LAYOUT;
+}
+
+function persistLayout(mode) {
+  try {
+    fs.writeFileSync(layoutFile(), JSON.stringify({ layout: mode }));
+  } catch {
+    /* best-effort persistence */
+  }
+}
+
+function setLayoutMode(mode) {
+  if (!LAYOUT.includes(mode)) return;
+  appState.layout = mode;
+  persistLayout(mode);
+  setStatus({}); // re-broadcast (carries the layout) so the Pure page re-renders
 }
 
 function currentWindowBg() {
@@ -635,6 +667,7 @@ function buildPureInfo() {
     themeSource: nativeTheme.themeSource,
     port: cfg ? cfg.port : DEFAULT_PORT,
     dshBin: cfg ? cfg.dshBin : 'dsh',
+    layout: appState.layout,
     url: appState.url,
     view: appState.view,
     status: currentStatus,
@@ -950,6 +983,11 @@ ipcMain.on('pure:restart', () => {
   restartServer();
 });
 
+/** Full-window / centered-card layout from the Pure page's switch. */
+ipcMain.on('pure:set-layout', (_event, mode) => {
+  setLayoutMode(String(mode));
+});
+
 // ---------------------------------------------------------------------------
 // Server restart
 // ---------------------------------------------------------------------------
@@ -1021,7 +1059,7 @@ async function restartServer() {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-const appState = { cfg: null, child: null, url: null, view: 'web' };
+const appState = { cfg: null, child: null, url: null, view: 'web', layout: 'full' };
 let quitting = false;
 // True while a restart is in flight: the child's intentional kill must NOT
 // trigger the "dsh web exited" dialog / app quit.
@@ -1072,6 +1110,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.deepseek-ai.dsh-desktop-pure');
     nativeTheme.themeSource = loadTheme(); // default: follow the system
+    appState.layout = loadLayout(); // default: full-window
     nativeTheme.on('updated', () => {
       // The OS theme changed (or themeSource is 'system'): re-skin the window
       // background. The title bar / menus re-skin via CSS media queries.
