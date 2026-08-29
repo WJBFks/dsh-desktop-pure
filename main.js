@@ -743,19 +743,113 @@ function pushPureInfo() {
   }
 }
 
-// Release notes shown on the Pure page's About section. Kept in sync with
-// CHANGELOG.md (Chinese, default) / CHANGELOG.en.md (English); keyed by the
-// app version (app.getVersion()). The Pure page picks the entry for the active
-// UI language.
+// Complete release history shown in the Pure page's "更新日志" (Changelog)
+// section. Kept in sync with CHANGELOG.md (Chinese, default) /
+// CHANGELOG.en.md (English); entries ordered newest-first. The Pure page
+// picks the list for the active UI language.
 const PURE_CHANGELOG = {
-  '0.2.0': {
-    zh: '内置「桌面端配置」页（外观 / DSH Web / 关于）· 标题栏「页面」菜单切换 · 切换时保留 dsh web 会话 · 全屏 / 卡片布局切换（持久化）· 连接失败回退而非退出 · 命名统一 DSH_DESKTOP_*',
-    en: 'Built-in settings page (Appearance / DSH Web / About) · title-bar "页面" switcher menu · dsh web session preserved on switch · full-window / card layout toggle (persisted) · startup failure degrades to the settings page · naming unified to DSH_DESKTOP_*'
-  },
-  '0.1.0': {
-    zh: '首个发布版本 · Windows 安装包 · 单端口策略（复用 / 拉起 / 冲突检测）· 系统托盘 · 一键重启 dsh web · 浅 / 深 / 跟随系统主题',
-    en: 'First public release · Windows installer · single-port policy (reuse / spawn / conflict detection) · system tray · one-click dsh web restart · light / dark / follow-system theme'
-  }
+  zh: [
+    {
+      version: '0.2.0',
+      date: '2026-08-30',
+      sections: [
+        {
+          title: '新增',
+          items: [
+            '内置设置页（「桌面端配置」）：壳自带的独立页面，风格参考 DSH Web 设置面板——左侧导航（外观 / DSH Web / 更新日志 / 关于）+ 居中内容主体，支持浅色 / 深色主题。',
+            '「页面」切换菜单：标题栏 `文件` 左侧新增按钮，下拉切换 **桌面端配置** 与 **DSH Web**。',
+            '布局切换：设置页提供 `全屏 / 卡片` 切换（持久化到 `userData/layout.json`）。'
+          ]
+        },
+        {
+          title: '变更',
+          items: [
+            '切换保留 dsh web 会话：在设置页与 DSH Web 之间切换时不再重新加载（两个常驻 `WebContentsView`，隐藏者移出屏幕而非销毁），对自建与复用实例均有效。',
+            '启动失败改为回退到设置页，而不再退出应用。',
+            '端口冲突对话框改为：重试 / 改用 DSH Desktop Pure / 退出（原为 重试 / 关闭）。',
+            '标题栏状态：新增 `Pure 页` 状态；连接中文案更清晰。'
+          ]
+        },
+        {
+          title: '修复',
+          items: [
+            '加载页不再覆盖纯页（改用独立的加载覆盖层）。',
+            '命名统一为 `DSH_DESKTOP_*`（旧 `DSH_ELECTRON_*` 仍兼容）。'
+          ]
+        }
+      ]
+    },
+    {
+      version: '0.1.0',
+      date: '2026-08-29',
+      sections: [
+        {
+          title: '新增',
+          items: [
+            '首个发布版本；Windows 安装包。',
+            '`dsh web` 的零侵入 Electron 套壳（不修改 DSH 任何代码 / 资源 / 配置，独立于 DSH 版本）。',
+            '单端口策略（绝不静默漂移）：复用已有 `dsh web` / 自动拉起 / 冲突对话框（进程名 + PID）。',
+            '自绘单行标题栏：`文件 / 视图 / 服务器` 菜单、居中连接状态、在浏览器中打开、窗口控制（Win/Linux）/ 原生交通灯（macOS）。',
+            '系统托盘：隐藏到托盘，dsh 服务器后台续跑。',
+            '一键重启 dsh 服务器（主题感知加载页，重启不退出应用）。',
+            '主题：浅色 / 深色 / 跟随系统（`nativeTheme`，持久化到 `userData/theme.json`）。',
+            '安全加固：渲染进程 `sandbox` + `contextIsolation` + 无 `nodeIntegration`；仅允许 loopback 导航；外链交系统浏览器；禁用 `<webview>`。'
+          ]
+        }
+      ]
+    }
+  ],
+  en: [
+    {
+      version: '0.2.0',
+      date: '2026-08-30',
+      sections: [
+        {
+          title: 'Added',
+          items: [
+            'Built-in settings page ("桌面端配置"): a shell-owned, independent page styled after the DSH Web settings panel — left sidebar (Appearance / DSH Web / Changelog / About) plus a centered content body. Supports light / dark themes.',
+            '"页面" switcher menu: a button left of `文件` in the title bar opens a dropdown to toggle between 桌面端配置 and DSH Web.',
+            'Layout switch: the settings page offers a `全屏 / 卡片` toggle (persisted in `userData/layout.json`).'
+          ]
+        },
+        {
+          title: 'Changed',
+          items: [
+            'dsh web session preserved when toggling between the settings page and DSH Web (two live `WebContentsView`s; the hidden one is parked off-screen, not reloaded). Works for both shell-spawned and reused `dsh web` instances.',
+            'Startup failure now degrades to the settings page instead of exiting the app.',
+            'Port-conflict dialog: 重试 / 改用 DSH Desktop Pure / 退出 (was 重试 / 关闭).',
+            'Title-bar status: added a `Pure 页` state; clearer connecting text.'
+          ]
+        },
+        {
+          title: 'Fixed',
+          items: [
+            'Loading page no longer overwrites the Pure page (dedicated loading overlay).',
+            'Unified naming to `DSH_DESKTOP_*` (legacy `DSH_ELECTRON_*` still accepted).'
+          ]
+        }
+      ]
+    },
+    {
+      version: '0.1.0',
+      date: '2026-08-29',
+      sections: [
+        {
+          title: 'Added',
+          items: [
+            'First public release; Windows installer.',
+            'Zero-intrusion Electron shell for `dsh web` (no DSH code, resources, or config modified; independent of DSH releases).',
+            'Single-port policy (never silently drifts): reuse an existing `dsh web` / auto-spawn / conflict dialog with process name + PID.',
+            'Self-drawn one-row title bar: `文件 / 视图 / 服务器` menus, centered connection status, open-in-browser, window controls (Win/Linux) / native traffic lights (macOS).',
+            'System tray: hide-to-tray while the dsh server keeps running.',
+            'One-click restart dsh server (theme-aware loading page; the app never quits on restart).',
+            'Theme: light / dark / follow system (`nativeTheme`, persisted in `userData/theme.json`).',
+            'Hardened renderer: `sandbox` + `contextIsolation` + no `nodeIntegration`; loopback-only navigation; remote links to the OS browser; `<webview>` disabled.'
+          ]
+        }
+      ]
+    }
+  ]
 };
 
 // The Pure page's UI language (zh by default; follows the OS / Chromium locale).
@@ -781,7 +875,7 @@ function buildPureInfo() {
       chrome: process.versions.chrome,
       node: process.versions.node
     },
-    changelog: (PURE_CHANGELOG[app.getVersion()] || {})[pureLang()] || ''
+    changelog: PURE_CHANGELOG[pureLang()] || []
   };
 }
 

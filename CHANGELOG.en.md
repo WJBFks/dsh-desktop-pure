@@ -8,13 +8,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 
 ---
 
-## [0.2.0] — 2026-07-20
+## [0.2.0] — 2026-08-30
 
 ### Added
 
 - **Built-in settings page** ("桌面端配置"): a shell-owned, independent page styled
-  after the DSH Web settings panel — left sidebar (Appearance / DSH Web / About)
-  plus a centered content body. Supports light / dark themes.
+  after the DSH Web settings panel — left sidebar (Appearance / DSH Web /
+  Changelog / About) plus a centered content body. Supports light / dark themes.
 - **"页面" switcher menu**: a button left of `文件` in the title bar opens a
   dropdown to toggle between **桌面端配置** and **DSH Web**.
 - **Layout switch**: the settings page offers a `全屏 / 卡片` toggle (persisted in
@@ -37,7 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 
 ---
 
-## [0.1.0] — 2026-07-18
+## [0.1.0] — 2026-08-29
 
 ### Added
 

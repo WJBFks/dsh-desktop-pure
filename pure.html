@@ -421,6 +421,56 @@
       padding-top: 14px;
     }
 
+    /* Changelog (更新日志): version cards, newest first */
+    .changelog {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .cl-entry {
+      background: var(--bg-module-platform);
+      border: 1px solid var(--border-l2);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .cl-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .cl-ver {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--label-primary);
+    }
+    .cl-date {
+      font-size: 12px;
+      line-height: 17px;
+      color: var(--label-tertiary);
+    }
+    .cl-sec {
+      margin-top: 10px;
+    }
+    .cl-sec h4 {
+      margin: 0 0 5px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--label-primary);
+    }
+    .cl-sec ul {
+      margin: 0;
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .cl-sec li {
+      font-size: 13px;
+      line-height: 19px;
+      color: var(--label-secondary);
+    }
+
     /* Status pill */
     .pill {
       display: inline-flex;
@@ -565,6 +615,15 @@
             </svg>
             <span>DSH Web</span>
           </button>
+          <button class="nav-cell" data-section="changelog" type="button">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
+              <path d="M4 1.75h5.25L12 4.5v9.75H4z"/>
+              <path d="M9.25 1.75V4.5H12"/>
+              <line x1="6" y1="8" x2="10" y2="8"/>
+              <line x1="6" y1="10.5" x2="10" y2="10.5"/>
+            </svg>
+            <span>更新日志</span>
+          </button>
           <button class="nav-cell" data-section="about" type="button">
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor">
               <circle cx="8" cy="8" r="6.25" stroke-width="1"/>
@@ -595,6 +654,10 @@
           <div class="pane-head" data-section="web" hidden>
             <h2>DSH Web</h2>
             <p>DSH Desktop Pure 完全独立于 DSH Web —— 即使 dsh web 服务未启动，本页也照常可用。</p>
+          </div>
+          <div class="pane-head" data-section="changelog" hidden>
+            <h2>更新日志</h2>
+            <p>DSH Desktop Pure 的完整版本更新记录，与仓库 CHANGELOG 保持一致。</p>
           </div>
           <div class="pane-head" data-section="about" hidden>
             <h2>关于</h2>
@@ -659,18 +722,15 @@
               </div>
             </div>
           </div>
+          <div class="pane-body" data-section="changelog" hidden>
+            <div class="changelog" id="changelogBox"></div>
+          </div>
           <div class="pane-body" data-section="about" hidden>
             <div class="row">
               <div class="row-text">
                 <div class="row-title">说明</div>
               </div>
               <div class="val val-wide">内置页面 · 独立于 dsh web</div>
-            </div>
-            <div class="row">
-              <div class="row-text">
-                <div class="row-title">更新日志</div>
-              </div>
-              <div class="val val-wide" id="valChangelog">—</div>
             </div>
             <div class="row">
               <div class="row-text">
@@ -713,7 +773,7 @@
       var valDsh = $('valDsh');
       var valEngine = $('valEngine');
       var valPlatform = $('valPlatform');
-      var valChangelog = $('valChangelog');
+      var changelogBox = $('changelogBox');
       var brandVersion = $('brandVersion');
       var btnOpenWeb = $('btnOpenWeb');
       var btnOpenBrowser = $('btnOpenBrowser');
@@ -724,7 +784,7 @@
       var navCells = Array.prototype.slice.call(document.querySelectorAll('#navList .nav-cell'));
       var heads = Array.prototype.slice.call(document.querySelectorAll('.pane-head'));
       var bodies = Array.prototype.slice.call(document.querySelectorAll('.pane-body'));
-      var SECTIONS = ['appearance', 'web', 'about'];
+      var SECTIONS = ['appearance', 'web', 'changelog', 'about'];
 
       var lastInfo = null;
 
@@ -784,6 +844,35 @@
         }
       }
 
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // Full changelog (kept in sync with CHANGELOG.md), newest first.
+      function renderChangelog(list) {
+        if (!changelogBox) return;
+        if (!list || !list.length) {
+          changelogBox.innerHTML = '<p class="row-desc">暂无更新日志。</p>';
+          return;
+        }
+        changelogBox.innerHTML = list.map(function (e) {
+          var secs = (e.sections || []).map(function (s) {
+            var lis = (s.items || [])
+              .map(function (i) { return '<li>' + esc(i) + '</li>'; })
+              .join('');
+            return '<div class="cl-sec"><h4>' + esc(s.title) + '</h4><ul>' + lis + '</ul></div>';
+          }).join('');
+          return '<article class="cl-entry">' +
+            '<header class="cl-head"><span class="cl-ver">v' + esc(e.version) + '</span>' +
+            '<time class="cl-date">' + esc(e.date) + '</time></header>' + secs + '</article>';
+        }).join('');
+      }
+
       function applyInfo(info) {
         if (!info || typeof info !== 'object') return;
         lastInfo = info;
@@ -794,7 +883,7 @@
         valPlatform.textContent = platformName(info.platform);
         valPort.textContent = String(info.port != null ? info.port : '—');
         valDsh.textContent = info.dshBin || '—';
-        valChangelog.textContent = info.changelog || '—';
+        renderChangelog(info.changelog);
         applyLayout(info.layout);
         selectTheme(info.themeSource);
         applyConnection(info);
