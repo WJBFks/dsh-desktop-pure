@@ -408,6 +408,8 @@ function setThemeSource(source) {
 let win = null; // BaseWindow
 let webView = null; // WebContentsView: the dsh web page (kept alive to preserve its session)
 let pureView = null; // WebContentsView: the shell's own DSH Desktop Pure page (file://)
+let loadingView = null; // WebContentsView: transient loading overlay (transparent when hidden)
+let loadingVisible = false; // whether the loading overlay is currently shown
 let titlebarView = null; // WebContentsView: the one-row title bar (middle)
 let menuView = null; // WebContentsView: the dropdown menu (top, transparent)
 let tray = null; // System tray icon (hide-to-tray; server keeps running while hidden)
@@ -456,7 +458,8 @@ function hardenWebContents(wc) {
 /**
  * Lays the title bar on top and the active page (web or pure) beneath it. The
  * inactive page is parked off-screen (kept alive so its session is preserved),
- * never destroyed. Menu is positioned on demand.
+ * never destroyed. The loading overlay (when shown) sits over the content area.
+ * Menu is positioned on demand.
  */
 function layout() {
   if (win === null || titlebarView === null || webView === null || pureView === null) return;
@@ -471,6 +474,12 @@ function layout() {
   } else {
     webView.setBounds({ x: 0, y, width, height: h });
     pureView.setBounds({ x: OFF, y, width, height: h });
+  }
+  // Loading overlay: cover the content area when visible, else park off-screen.
+  if (loadingView !== null) {
+    loadingView.setBounds(
+      loadingVisible ? { x: 0, y, width, height: h } : { x: OFF, y, width: 0, height: 0 }
+    );
   }
 }
 
@@ -524,6 +533,12 @@ function createWindow() {
   });
   pureView.webContents.loadFile(path.join(__dirname, 'pure.html'));
 
+  // Transient loading overlay (transparent when hidden). Shown only while dsh
+  // web is starting / restarting — it never replaces the web or pure page.
+  loadingView = new WebContentsView();
+  loadingView.setBackgroundColor('#00000000');
+  loadingView.webContents.loadFile(path.join(__dirname, 'loading.html'));
+
   // One-row title bar (middle). Its drag region moves the window.
   titlebarView = new WebContentsView({
     webPreferences: {
@@ -548,9 +563,11 @@ function createWindow() {
   menuView.setBackgroundColor('#00000000'); // fully transparent outside the menu
 
   // Stacking order: later-added views sit on top. Only one of webView /
-  // pureView is visible at a time (layout() hides the other off-screen).
+  // pureView is visible at a time (layout() hides the other off-screen); the
+  // loading overlay sits above the content, below the title bar and menu.
   win.contentView.addChildView(webView);
   win.contentView.addChildView(pureView);
+  win.contentView.addChildView(loadingView);
   win.contentView.addChildView(titlebarView);
   win.contentView.addChildView(menuView);
   layout();
@@ -591,6 +608,8 @@ function createWindow() {
     win = null;
     webView = null;
     pureView = null;
+    loadingView = null;
+    loadingVisible = false;
     titlebarView = null;
     menuView = null;
     openMenu = null;
@@ -605,18 +624,20 @@ function loadWeb(url) {
 }
 
 /**
- * Show the shell's (theme-aware) loading page while dsh web starts. Drawn in
- * the web view only when it is not already the active page (avoids clobbering
- * a live dsh web session); otherwise in the pure view.
+ * Show the theme-aware loading overlay (a dedicated WebContentsView) while dsh
+ * web starts or restarts. It is a transient layer — it never replaces the
+ * content of the web or pure page, so their sessions are preserved.
  */
 function showLoading() {
-  const showIn = (view) => {
-    if (view !== null && !view.webContents.isDestroyed()) {
-      view.webContents.loadFile(path.join(__dirname, 'loading.html'));
-    }
-  };
-  if (appState.view === 'web') showIn(webView);
-  else showIn(pureView);
+  if (loadingView === null || loadingView.webContents.isDestroyed()) return;
+  loadingVisible = true;
+  layout();
+}
+
+/** Hide the loading overlay. */
+function hideLoading() {
+  loadingVisible = false;
+  if (loadingView !== null && !loadingView.webContents.isDestroyed()) layout();
 }
 
 // ---------------------------------------------------------------------------
@@ -666,6 +687,7 @@ async function connectWeb() {
     if (child !== null) bindChildExit(child);
     appState.view = 'web';
     layout();
+    hideLoading();
     loadWeb(url);
     setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
     if (cfg.verbose) {
@@ -675,6 +697,7 @@ async function connectWeb() {
     }
   } catch (err) {
     // Degrade to the independent Pure page — never quit the app over dsh web.
+    hideLoading();
     enterPureView(err.message);
     return;
   }
@@ -1096,6 +1119,7 @@ async function restartServer() {
     appState.childAlive = true;
     if (child !== null) bindChildExit(child);
     appState.view = 'web';
+    hideLoading();
     loadWeb(url);
     layout();
     setStatus({ state: 'online', url, port: cfg.port, spawned: true });
