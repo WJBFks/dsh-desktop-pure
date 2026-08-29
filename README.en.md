@@ -73,6 +73,7 @@
 ## More documentation
 
 - 📖 **[Detailed reference](./docs/DETAILS.en.md)** — behavior / running from source / upgrading DSH / security / directory layout / packaging, for power users and contributors.
+- 📝 **[Changelog](./CHANGELOG.en.md)** — notable changes per release ([中文](./CHANGELOG.md)).
 
 ## License
 

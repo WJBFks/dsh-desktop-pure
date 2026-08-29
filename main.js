@@ -743,12 +743,25 @@ function pushPureInfo() {
   }
 }
 
-// Release notes shown on the Pure page's About section. Keep in sync with
-// CHANGELOG.md; keyed by the app version (app.getVersion()).
+// Release notes shown on the Pure page's About section. Kept in sync with
+// CHANGELOG.md (Chinese, default) / CHANGELOG.en.md (English); keyed by the
+// app version (app.getVersion()). The Pure page picks the entry for the active
+// UI language.
 const PURE_CHANGELOG = {
-  '0.2.0': '内置「桌面端配置」页（外观 / DSH Web / 关于）· 标题栏「页面」菜单切换 · 切换时保留 dsh web 会话 · 全屏 / 卡片布局切换（持久化）· 连接失败回退而非退出 · 命名统一 DSH_DESKTOP_*',
-  '0.1.0': '首个发布版本 · Windows 安装包 · 单端口策略（复用 / 拉起 / 冲突检测）· 系统托盘 · 一键重启 dsh web · 浅 / 深 / 跟随系统主题'
+  '0.2.0': {
+    zh: '内置「桌面端配置」页（外观 / DSH Web / 关于）· 标题栏「页面」菜单切换 · 切换时保留 dsh web 会话 · 全屏 / 卡片布局切换（持久化）· 连接失败回退而非退出 · 命名统一 DSH_DESKTOP_*',
+    en: 'Built-in settings page (Appearance / DSH Web / About) · title-bar "页面" switcher menu · dsh web session preserved on switch · full-window / card layout toggle (persisted) · startup failure degrades to the settings page · naming unified to DSH_DESKTOP_*'
+  },
+  '0.1.0': {
+    zh: '首个发布版本 · Windows 安装包 · 单端口策略（复用 / 拉起 / 冲突检测）· 系统托盘 · 一键重启 dsh web · 浅 / 深 / 跟随系统主题',
+    en: 'First public release · Windows installer · single-port policy (reuse / spawn / conflict detection) · system tray · one-click dsh web restart · light / dark / follow-system theme'
+  }
 };
+
+// The Pure page's UI language (zh by default; follows the OS / Chromium locale).
+function pureLang() {
+  return /^zh/i.test(app.getLocale() || 'zh') ? 'zh' : 'en';
+}
 
 /** Snapshot of state the Pure page needs (version / theme / connection / …). */
 function buildPureInfo() {
@@ -768,7 +781,7 @@ function buildPureInfo() {
       chrome: process.versions.chrome,
       node: process.versions.node
     },
-    changelog: PURE_CHANGELOG[app.getVersion()] || ''
+    changelog: (PURE_CHANGELOG[app.getVersion()] || {})[pureLang()] || ''
   };
 }
 

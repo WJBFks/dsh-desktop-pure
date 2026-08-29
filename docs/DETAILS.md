@@ -78,6 +78,8 @@ dsh-desktop-pure/
 ├── docs/
 │   ├── DETAILS.md       # 本文件（中文）
 │   └── DETAILS.en.md    # 英文版
+├── CHANGELOG.md         # 更新日志（中文，默认）
+├── CHANGELOG.en.md      # 更新日志（English）
 ├── LICENSE              # MIT
 ├── README.md            # 中文 README
 └── README.en.md         # English README

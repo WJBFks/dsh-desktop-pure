@@ -78,6 +78,8 @@ dsh-desktop-pure/
 ├── docs/
 │   ├── DETAILS.md       # this file (Chinese)
 │   └── DETAILS.en.md    # English
+├── CHANGELOG.md         # changelog (Chinese, default)
+├── CHANGELOG.en.md      # changelog (English)
 ├── LICENSE              # MIT
 ├── README.md            # Chinese README
 └── README.en.md         # English README

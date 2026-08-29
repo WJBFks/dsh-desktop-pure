@@ -73,6 +73,7 @@
 ## 更多文档
 
 - 📖 **[详细说明](./docs/DETAILS.md)** —— 行为说明 / 从源码运行 / 升级 DSH / 安全说明 / 目录结构 / 打包发布，面向进阶用户与贡献者。
+- 📝 **[更新日志](./CHANGELOG.md)** —— 各版本的重要变更（[English](./CHANGELOG.en.md)）。
 
 ## License
 
