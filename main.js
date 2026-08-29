@@ -406,7 +406,8 @@ function setThemeSource(source) {
 // ---------------------------------------------------------------------------
 
 let win = null; // BaseWindow
-let harnessView = null; // WebContentsView: the harness page (bottom)
+let webView = null; // WebContentsView: the dsh web page (kept alive to preserve its session)
+let pureView = null; // WebContentsView: the shell's own DSH Desktop Pure page (file://)
 let titlebarView = null; // WebContentsView: the one-row title bar (middle)
 let menuView = null; // WebContentsView: the dropdown menu (top, transparent)
 let tray = null; // System tray icon (hide-to-tray; server keeps running while hidden)
@@ -452,12 +453,25 @@ function hardenWebContents(wc) {
   wc.on('will-attach-webview', (event) => event.preventDefault());
 }
 
-/** Lays the title bar on top and the harness beneath it (menu is positioned on demand). */
+/**
+ * Lays the title bar on top and the active page (web or pure) beneath it. The
+ * inactive page is parked off-screen (kept alive so its session is preserved),
+ * never destroyed. Menu is positioned on demand.
+ */
 function layout() {
-  if (win === null || titlebarView === null || harnessView === null) return;
+  if (win === null || titlebarView === null || webView === null || pureView === null) return;
   const [width, height] = win.getContentSize();
+  const y = TITLEBAR_HEIGHT;
+  const h = Math.max(0, height - TITLEBAR_HEIGHT);
   titlebarView.setBounds({ x: 0, y: 0, width, height: TITLEBAR_HEIGHT });
-  harnessView.setBounds({ x: 0, y: TITLEBAR_HEIGHT, width, height: Math.max(0, height - TITLEBAR_HEIGHT) });
+  const OFF = -100000; // off-screen: hides a view without destroying its webContents
+  if (appState.view === 'pure') {
+    pureView.setBounds({ x: 0, y, width, height: h });
+    webView.setBounds({ x: OFF, y, width, height: h });
+  } else {
+    webView.setBounds({ x: 0, y, width, height: h });
+    pureView.setBounds({ x: OFF, y, width, height: h });
+  }
 }
 
 /** Platform-appropriate window options. */
@@ -486,8 +500,9 @@ function windowOptions() {
 function createWindow() {
   win = new BaseWindow(windowOptions());
 
-  // Harness page (bottom).
-  harnessView = new WebContentsView({
+  // dsh web page. Kept alive (parked off-screen when not shown) so its session
+  // survives switching to/from the Pure page.
+  webView = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -496,6 +511,18 @@ function createWindow() {
       webSecurity: true
     }
   });
+
+  // The shell's own DSH Desktop Pure page (file://, independent of dsh web).
+  pureView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'purepreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+  pureView.webContents.loadFile(path.join(__dirname, 'pure.html'));
 
   // One-row title bar (middle). Its drag region moves the window.
   titlebarView = new WebContentsView({
@@ -520,17 +547,21 @@ function createWindow() {
   });
   menuView.setBackgroundColor('#00000000'); // fully transparent outside the menu
 
-  // Stacking order: later-added views sit on top.
-  win.contentView.addChildView(harnessView);
+  // Stacking order: later-added views sit on top. Only one of webView /
+  // pureView is visible at a time (layout() hides the other off-screen).
+  win.contentView.addChildView(webView);
+  win.contentView.addChildView(pureView);
   win.contentView.addChildView(titlebarView);
   win.contentView.addChildView(menuView);
   layout();
   menuView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); // hidden until opened
   win.on('resize', layout);
 
-  hardenWebContents(harnessView.webContents);
+  // Harden the dsh web page; the Pure page is a local file:// we fully control.
+  hardenWebContents(webView.webContents);
+  hardenWebContents(pureView.webContents);
   // Pin the window title (taskbar / window list) even though the page sets its own <title>.
-  harnessView.webContents.on('page-title-updated', (event) => {
+  webView.webContents.on('page-title-updated', (event) => {
     event.preventDefault();
     win.setTitle(WINDOW_TITLE);
   });
@@ -558,79 +589,84 @@ function createWindow() {
 
   win.on('closed', () => {
     win = null;
-    harnessView = null;
+    webView = null;
+    pureView = null;
     titlebarView = null;
     menuView = null;
     openMenu = null;
   });
 }
 
-/** Load (or reload) the harness URL into the harness view. */
-function loadMain(url) {
-  if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
-    harnessView.webContents.loadURL(url);
+/** Navigate (or re-navigate) the dsh web view to a URL. */
+function loadWeb(url) {
+  if (webView !== null && !webView.webContents.isDestroyed()) {
+    webView.webContents.loadURL(url);
   }
 }
 
-/** Show the shell's own (theme-aware) loading page in the harness area. */
+/**
+ * Show the shell's (theme-aware) loading page while dsh web starts. Drawn in
+ * the web view only when it is not already the active page (avoids clobbering
+ * a live dsh web session); otherwise in the pure view.
+ */
 function showLoading() {
-  if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
-    harnessView.webContents.loadFile(path.join(__dirname, 'loading.html'));
-  }
+  const showIn = (view) => {
+    if (view !== null && !view.webContents.isDestroyed()) {
+      view.webContents.loadFile(path.join(__dirname, 'loading.html'));
+    }
+  };
+  if (appState.view === 'web') showIn(webView);
+  else showIn(pureView);
 }
 
 // ---------------------------------------------------------------------------
-// View switching: the harness area shows either the shell's own "DSH Desktop
-// Pure" page (pure.html — fully local, no network) or the dsh web page (URL).
-// The Pure page is INDEPENDENT of the web server: it loads from file:// and
-// stays usable even when dsh web is down. The DSH icon menu in the title bar
-// (and the Pure page's "open DSH Web" action) switch between the two.
+// View switching: the content area holds TWO live WebContentsViews — the dsh
+// web page (webView) and the shell's own Pure page (pureView). Switching only
+// changes which one is on-screen (layout() parks the other off-screen), so the
+// dsh web session is PRESERVED — it is not reloaded on every switch. The Pure
+// page is independent of the web server (file://); DSH Web is connected on
+// demand. The title-bar DSH icon (and the Pure page's "Open DSH Web") switch.
 // ---------------------------------------------------------------------------
+
+/** Show the dsh web view without re-navigating (preserves its session). */
+function showWebOnly() {
+  appState.view = 'web';
+  layout();
+  if (appState.url !== null) {
+    setStatus({ state: 'online', url: appState.url, port: appState.cfg.port, spawned: appState.childAlive });
+  }
+  refreshDshMenu();
+}
 
 /** Show the shell's own DSH Desktop Pure page (independent of dsh web). */
 function enterPureView(reason) {
   appState.view = 'pure';
-  if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
-    harnessView.webContents.loadFile(path.join(__dirname, 'pure.html'));
-  }
+  layout();
   setStatus({ state: 'pure', reason });
   refreshDshMenu();
 }
 
-/**
- * Show the dsh web page. If we already resolved a URL, just (re)load it;
- * otherwise run the full resolve (probe → reuse → spawn → conflict). Any
- * failure falls back to the independent Pure page instead of exiting the app.
- */
-async function enterWebView() {
+/** Connect (or reconnect) to dsh web, then show it. */
+async function connectWeb() {
   const cfg = appState.cfg;
   if (cfg === null) return;
-  // Already on a working web URL: just re-navigate (e.g. the user re-selects
-  // DSH Web after being on the Pure page).
-  if (appState.view === 'web' && appState.url !== null) {
-    if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
-      harnessView.webContents.loadURL(appState.url);
-    }
-    return;
-  }
-  appState.view = 'web';
   showLoading();
   setStatus({ state: 'starting', port: cfg.port });
   try {
     let url;
     let child = null;
     if (cfg.urlOverride !== undefined) {
-      // Explicit --url=/DSH_DESKTOP_URL: load it directly (no spawn).
-      url = cfg.urlOverride;
+      url = cfg.urlOverride; // explicit --url=/DSH_DESKTOP_URL: no spawn
     } else {
       ({ url, child } = await resolveServer(cfg));
     }
     appState.url = url;
     appState.child = child;
+    appState.childAlive = child !== null;
     if (child !== null) bindChildExit(child);
-    if (harnessView !== null && !harnessView.webContents.isDestroyed()) {
-      harnessView.webContents.loadURL(url);
-    }
+    appState.view = 'web';
+    layout();
+    loadWeb(url);
     setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
     if (cfg.verbose) {
       console.log(
@@ -643,6 +679,20 @@ async function enterWebView() {
     return;
   }
   refreshDshMenu();
+}
+
+/**
+ * Show the dsh web page. If a live session is already there (our spawned child
+ * still running), just reveal it — no reload. Otherwise connect / reconnect.
+ */
+async function enterWebView() {
+  const cfg = appState.cfg;
+  if (cfg === null) return;
+  if (appState.url !== null && appState.childAlive) {
+    showWebOnly(); // preserve the existing session
+    return;
+  }
+  await connectWeb();
 }
 
 /** Re-render the open DSH icon menu (radio state) and refresh the Pure page. */
@@ -733,8 +783,10 @@ function createTray() {
   tray.on('click', () => showWindow());
 }
 
+/** webContents of the currently-visible page (web or pure). */
 function mainContents() {
-  return harnessView !== null && !harnessView.webContents.isDestroyed() ? harnessView.webContents : null;
+  const view = appState.view === 'pure' ? pureView : webView;
+  return view !== null && !view.webContents.isDestroyed() ? view.webContents : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,13 +1089,15 @@ async function restartServer() {
         }
       }
     }
-    // 4. Spawn a fresh dsh web, then load it over the loading page.
+    // 4. Spawn a fresh dsh web, then point the web view at it.
     const { url, child } = await spawnOnPort(cfg, cfg.port);
     appState.url = url;
     appState.child = child;
+    appState.childAlive = true;
     if (child !== null) bindChildExit(child);
     appState.view = 'web';
-    loadMain(url);
+    loadWeb(url);
+    layout();
     setStatus({ state: 'online', url, port: cfg.port, spawned: true });
     refreshDshMenu();
   } catch (err) {
@@ -1059,7 +1113,7 @@ async function restartServer() {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-const appState = { cfg: null, child: null, url: null, view: 'web', layout: 'full' };
+const appState = { cfg: null, child: null, url: null, view: 'web', layout: 'full', childAlive: false };
 let quitting = false;
 // True while a restart is in flight: the child's intentional kill must NOT
 // trigger the "dsh web exited" dialog / app quit.
@@ -1079,6 +1133,7 @@ function bindChildExit(child) {
     // than quitting the whole app — the Pure page keeps working without the
     // server, and the user can retry from the title bar or the Pure page.
     appState.child = null;
+    appState.childAlive = false;
     appState.url = null;
     enterPureView(`dsh web 已退出（${why}）`);
   });
@@ -1143,7 +1198,7 @@ app.on('activate', () => {
     w.focus();
   } else if (appState.url !== null) {
     createWindow();
-    loadMain(appState.url);
-    setStatus({ state: appState.child !== null ? 'online' : 'offline', url: appState.url });
+    showWebOnly();
+    setStatus({ state: appState.childAlive ? 'online' : 'offline', url: appState.url });
   }
 });

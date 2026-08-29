@@ -46,6 +46,7 @@
       "loading.html",
       "pure.html",
       "preload.js",
+      "purepreload.js",
       "titlepreload.js",
       "menupreload.js"
     ],
