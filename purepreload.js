@@ -21,16 +21,29 @@ contextBridge.exposeInMainWorld('dshPure', {
     ipcRenderer.send('pure:set-layout', String(mode));
   },
   // "Open DSH Web": reveal the web view (preserve session) or connect it.
-  openWeb() {
-    ipcRenderer.send('pure:open-web');
+  // Optional id = which endpoint; defaults to the one the Pure page selected.
+  openWeb(id) {
+    ipcRenderer.send('pure:open-web', typeof id === 'string' ? id : '');
+  },
+  // Pick an endpoint in the DSH Web tab bar (does not connect yet).
+  selectEndpoint(id) {
+    ipcRenderer.send('pure:select-endpoint', String(id));
+  },
+  // Add a custom remote endpoint (awaitable: resolves { ok, error? }).
+  addEndpoint(name, url) {
+    return ipcRenderer.invoke('pure:add-endpoint', String(name), String(url));
+  },
+  // Remove a custom endpoint (local / WSL are permanent).
+  removeEndpoint(id) {
+    ipcRenderer.send('pure:remove-endpoint', String(id));
   },
   // Hand a web URL to the system browser (about / repo links).
   openExternal(url) {
     ipcRenderer.send('pure:open-external', String(url));
   },
-  // "Restart dsh server" from the Pure page.
-  restartServer() {
-    ipcRenderer.send('pure:restart');
+  // "Restart dsh server" from the Pure page (given id, or the displayed one).
+  restartServer(id) {
+    ipcRenderer.send('pure:restart', typeof id === 'string' ? id : '');
   },
   // Live state push (view / theme / layout / server went online or offline).
   subscribe(callback) {

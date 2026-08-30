@@ -49,7 +49,7 @@ const {
   ipcMain,
   nativeTheme
 } = require('electron');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn, spawnSync, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { probe, probeWithGrace, findPortOwner } = require('./port-probe.js');
@@ -297,8 +297,304 @@ async function resolveServer(cfg) {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-endpoint DSH Web: local (this OS) / WSL (Windows only) / custom
+// (user-added remote servers). Each endpoint is tracked in appState.endpoints;
+// the webView loads exactly one of them (appState.displayEndpoint).
+// ---------------------------------------------------------------------------
+
+function endpointsFile() {
+  return path.join(app.getPath('userData'), 'endpoints.json');
+}
+
+/** User-added remote endpoints (persisted across launches). */
+function loadCustomEndpoints() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(endpointsFile(), 'utf8'));
+    if (Array.isArray(arr)) {
+      return arr
+        .filter(
+          (e) =>
+            e &&
+            typeof e.name === 'string' &&
+            e.name.trim() !== '' &&
+            typeof e.url === 'string' &&
+            /^https?:\/\//i.test(e.url)
+        )
+        .map((e) => ({
+          id: 'ep-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+          kind: 'custom',
+          name: e.name.trim().slice(0, 40),
+          url: e.url.trim(),
+          child: null,
+          childAlive: false,
+          status: 'unknown',
+          detail: ''
+        }));
+    }
+  } catch {
+    /* missing/invalid file → no custom endpoints */
+  }
+  return [];
+}
+
+function persistCustomEndpoints() {
+  const arr = appState.endpoints
+    .filter((e) => e.kind === 'custom')
+    .map((e) => ({ name: e.name, url: e.url }));
+  try {
+    fs.writeFileSync(endpointsFile(), JSON.stringify(arr, null, 2));
+  } catch {
+    /* best-effort persistence */
+  }
+}
+
+function makeLocalEndpoint() {
+  return {
+    id: 'local',
+    kind: 'local',
+    name: process.platform === 'win32' ? 'Windows' : '本机',
+    url: null,
+    child: null,
+    childAlive: false,
+    status: 'unknown',
+    detail: ''
+  };
+}
+
+function makeWslEndpoint() {
+  return {
+    id: 'wsl',
+    kind: 'wsl',
+    name: 'WSL',
+    url: null,
+    child: null,
+    childAlive: false,
+    status: 'unknown',
+    detail: '',
+    wsl: null // { installed, dshBin, ip } once detected
+  };
+}
+
+/** Build the endpoint list (idempotent; custom endpoints loaded from disk). */
+function initEndpoints(urlOverride) {
+  const eps = [makeLocalEndpoint()];
+  if (process.platform === 'win32') eps.push(makeWslEndpoint());
+  eps.push(...loadCustomEndpoints());
+  // Explicit --url=/DSH_DESKTOP_URL becomes a registered endpoint, never a
+  // raw untracked URL.
+  if (
+    urlOverride !== undefined &&
+    eps.every((e) => e.url !== urlOverride)
+  ) {
+    eps.push({
+      id: 'ep-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+      kind: 'custom',
+      name: '指定地址',
+      url: urlOverride,
+      child: null,
+      childAlive: false,
+      status: 'unknown',
+      detail: ''
+    });
+  }
+  appState.endpoints = eps;
+  appState.activeEndpoint = 'local';
+}
+
+function getEndpoint(id) {
+  return appState.endpoints.find((e) => e.id === id) || null;
+}
+
+// --- WSL (Windows only) ----------------------------------------------------
+
+/** Run a `wsl` sub-command without blocking the main process. */
+function wslExec(args, timeoutMs) {
+  return new Promise((resolve) => {
+    try {
+      execFile('wsl', args, { timeout: timeoutMs, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
+        resolve({ err, stdout: stdout || '' });
+      });
+    } catch {
+      resolve({ err: new Error('spawn failed'), stdout: '' });
+    }
+  });
+}
+
+/**
+ * Detect WSL: is a default distribution installed, what is the distro's eth0
+ * IP (WSL2) or 127.0.0.1 (WSL1 shares the host's loopback), and where is `dsh`
+ * inside the distro (npm's global bin lands on the login-shell PATH).
+ */
+async function wslProbe() {
+  const list = await wslExec(['-l', '-q'], 20_000);
+  if (list.err || list.stdout.trim() === '') {
+    return { installed: false, dshBin: null, ip: null };
+  }
+  let ip = null;
+  const ipRes = await wslExec(['-e', 'hostname', '-I'], 20_000);
+  if (!ipRes.err) {
+    ip = ipRes.stdout.trim().split(/\s+/)[0] || null;
+  }
+  if (!ip) ip = '127.0.0.1'; // WSL1: the host can reach the distro via loopback
+  // Locate a REAL Linux-side dsh. `command -v dsh` can resolve to a Windows
+  // npm shim under /mnt/c (WSL merges the Windows PATH) — that binary runs on
+  // the Windows network stack and cannot bind the WSL IP, so it is rejected.
+  // Fall back to the usual Linux npm global locations.
+  const detect = [
+    'p=$(command -v dsh 2>/dev/null)',
+    "case \"$p\" in /mnt/*|'') p='' ;; esac",
+    'if [ -z "$p" ]; then for c in "$HOME/.local/share/.npm-global/bin/dsh" /usr/local/bin/dsh /usr/bin/dsh "$HOME"/.nvm/versions/node/*/bin/dsh; do if [ -x "$c" ]; then p="$c"; break; fi; done; fi',
+    'echo "$p"'
+  ].join('; ');
+  let dshBin = null;
+  const dshRes = await wslExec(['-e', 'bash', '-lc', detect], 25_000);
+  if (!dshRes.err) {
+    const lines = dshRes.stdout.trim().split('\n');
+    const last = lines[lines.length - 1] || '';
+    if (last.startsWith('/')) dshBin = last;
+  }
+  return { installed: true, dshBin, ip };
+}
+
+/** Spawn dsh web INSIDE the default WSL distribution (wsl.exe stays attached). */
+function spawnWslDsh(dshBin, ip, port) {
+  const inner = `exec "${dshBin}" web --no-open --host ${ip} --port ${port} --trusted-host ${ip}`;
+  return spawn('wsl', ['-e', 'bash', '-lc', inner], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+}
+
+/**
+ * Resolve the WSL dsh web: reuse an instance already serving on the WSL IP,
+ * otherwise spawn one. The spawn binds to the distro's eth0 IP (not 127.0.0.1,
+ * which Windows could not reach under WSL2) and registers that IP with dsh's
+ * /api browser-trust fence via --trusted-host, so the window's Host header
+ * passes the fence.
+ */
+async function resolveWslServer(cfg, ep) {
+  const info = ep.wsl;
+  if (!info || !info.installed) throw new Error('未检测到 WSL（请安装 WSL 与一个默认发行版）');
+  if (!info.dshBin) throw new Error('WSL 内未检测到 dsh。请先在 WSL 中执行：npm install -g @deepseek-ai/dsh');
+  const ip = info.ip;
+  const url = `http://${ip}:${cfg.port}`;
+  const status = await probeWithGrace(url);
+  if (status === 'harness') return { url, child: null };
+  if (status !== 'free') {
+    throw new Error(`WSL 内端口 ${cfg.port} 已被占用（请在 WSL 终端执行 lsof -i :${cfg.port} 查看）`);
+  }
+  const fixedUrl = url;
+  const child = spawnWslDsh(info.dshBin, ip, cfg.port);
+  let spawnError = null;
+  child.on('error', (err) => {
+    spawnError = err;
+  });
+  const urlSource = pipeChildOutput(child, cfg.verbose);
+  try {
+    // WSL cold start (booting the distro) is slower than a local spawn.
+    const readyUrl = await waitForServer(fixedUrl, urlSource.discoveredUrl, child, READY_TIMEOUT_MS + 60_000);
+    if (readyUrl === null) {
+      throw new Error(`WSL 内的 dsh web 未能在 ${READY_TIMEOUT_MS / 1000 + 60} 秒内就绪`);
+    }
+    return { url: readyUrl, child };
+  } catch (err) {
+    killChild(child);
+    if (spawnError !== null && spawnError.code === 'ENOENT') {
+      throw new Error('无法调用 wsl.exe（WSL 未安装或不可用）');
+    }
+    throw err;
+  }
+}
+
+/** Detect the WSL endpoint once at startup (Windows only). */
+async function detectWslEndpoint() {
+  const ep = getEndpoint('wsl');
+  if (ep === null) return;
+  ep.status = 'starting';
+  ep.detail = '正在检测 WSL…';
+  pushPureInfo();
+  try {
+    ep.wsl = await wslProbe();
+    if (!ep.wsl.installed) {
+      ep.status = 'error';
+      ep.detail = '未检测到 WSL';
+    } else if (!ep.wsl.dshBin) {
+      ep.status = 'error';
+      ep.detail = 'WSL 内未安装 dsh';
+    } else {
+      ep.status = 'unknown';
+      ep.detail = '';
+    }
+  } catch {
+    ep.status = 'error';
+    ep.detail = 'WSL 检测失败';
+  }
+  pushPureInfo();
+}
+
+/** Keep endpoint status dots fresh (5 s cadence; cheap probes only). */
+let ticking = false;
+async function tickEndpoints() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    for (const ep of appState.endpoints) {
+      if (ep.childAlive) {
+        ep.status = 'online';
+        continue;
+      }
+      if (ep.url === null) continue;
+      const st = await probeWithGrace(ep.url);
+      if (st === 'harness') ep.status = 'online';
+      else if (st === 'free') {
+        ep.status = 'offline';
+        // The server we connected to went away: clear the displayed URL.
+        if (appState.displayEndpoint === ep.id && appState.url === ep.url) {
+          appState.url = null;
+          appState.child = null;
+          ep.url = ep.kind === 'custom' ? ep.url : null; // custom keeps its address
+          if (ep.kind !== 'custom') appState.displayEndpoint = null;
+          enterPureView(`${ep.name} 的 dsh web 已离线`);
+        }
+      } else {
+        ep.status = 'offline';
+      }
+    }
+    pushPureInfo();
+  } finally {
+    ticking = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Window helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Navigation policy for the webView: loopback http(s) plus the host of any
+ * registered endpoint (WSL's eth0 IP, user-added remote servers). Endpoints
+ * are explicit, user-managed entries, so trusting their host:port is
+ * intentional; everything else still goes to the system browser.
+ */
+function isRegisteredEndpointUrl(raw) {
+  try {
+    const u = new URL(raw);
+    return appState.endpoints.some((ep) => {
+      if (ep.url === null || ep.url === undefined) return false;
+      try {
+        return new URL(ep.url).host === u.host;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedNavigation(raw) {
+  return isLoopbackHttp(raw) || isRegisteredEndpointUrl(raw);
+}
 
 /** Only loopback http(s) URLs are allowed inside the window. */
 function isLoopbackHttp(raw) {
@@ -439,14 +735,14 @@ function pushMaximized(maximized) {
 /** Apply the hardening policies to the harness webContents. */
 function hardenWebContents(wc) {
   wc.setWindowOpenHandler(({ url: target }) => {
-    if (/^https?:/i.test(target) && !isLoopbackHttp(target)) {
+    if (/^https?:/i.test(target) && !isAllowedNavigation(target)) {
       openExternalSafely(target);
     }
     return { action: 'deny' };
   });
-  // Never let the app navigate away from the local harness.
+  // Never let the app navigate away from the harness or a registered endpoint.
   wc.on('will-navigate', (event, target) => {
-    if (!isLoopbackHttp(target)) {
+    if (!isAllowedNavigation(target)) {
       event.preventDefault();
       if (/^https?:/i.test(target)) openExternalSafely(target);
     }
@@ -671,24 +967,70 @@ function enterPureView(reason) {
   refreshDshMenu();
 }
 
-/** Connect (or reconnect) to dsh web, then show it. */
-async function connectWeb() {
+/**
+ * Connect (or reconnect) to a DSH endpoint, then show it in the webView.
+ * Session preservation applies per endpoint: if the window is already showing
+ * a reachable copy of THIS endpoint, just reveal it — no reload. Switching
+ * BETWEEN endpoints re-navigates (the servers are separate; their session
+ * state lives on each server).
+ */
+async function connectEndpoint(id) {
   const cfg = appState.cfg;
   if (cfg === null) return;
+  const ep = getEndpoint(id);
+  if (ep === null) return;
+  appState.activeEndpoint = ep.id;
+
+  // Already showing this endpoint and it still answers → just reveal.
+  if (appState.displayEndpoint === ep.id && appState.url !== null) {
+    const reachable =
+      ep.childAlive || (await probe(appState.url, { assumeHarness: true })) === 'harness';
+    if (reachable) {
+      showWebOnly();
+      pushPureInfo();
+      return;
+    }
+  }
+
   showLoading();
   setStatus({ state: 'starting', port: cfg.port });
+  ep.status = 'starting';
+  ep.detail = '';
+  pushPureInfo();
   try {
     let url;
     let child = null;
-    if (cfg.urlOverride !== undefined) {
-      url = cfg.urlOverride; // explicit --url=/DSH_DESKTOP_URL: no spawn
+    if (ep.kind === 'custom') {
+      // View-only: the remote dsh web must already be running (and must have
+      // been told to trust our host via --trusted-host).
+      if (!ep.url) throw new Error('未设置地址');
+      const st = await probe(ep.url, { assumeHarness: true });
+      if (st !== 'harness') {
+        throw new Error(
+          '无法连接该远程地址。请确认远端 dsh web 正在运行，且启动时通过 --trusted-host 声明了本端访问的主机'
+        );
+      }
+      url = ep.url;
+    } else if (ep.kind === 'wsl') {
+      ({ url, child } = await resolveWslServer(cfg, ep));
     } else {
-      ({ url, child } = await resolveServer(cfg));
+      if (cfg.urlOverride !== undefined && ep.id === 'local' && appState.url === null) {
+        // Explicit --url=/DSH_DESKTOP_URL at launch: no spawn, load it directly.
+        url = cfg.urlOverride;
+      } else {
+        ({ url, child } = await resolveServer(cfg));
+      }
     }
+    ep.url = url;
+    ep.child = child;
+    ep.childAlive = child !== null;
+    ep.status = 'online';
+    ep.detail = '';
+    if (child !== null) bindChildExit(child, ep);
     appState.url = url;
     appState.child = child;
     appState.childAlive = child !== null;
-    if (child !== null) bindChildExit(child);
+    appState.displayEndpoint = ep.id;
     appState.view = 'web';
     layout();
     hideLoading();
@@ -696,16 +1038,25 @@ async function connectWeb() {
     setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
     if (cfg.verbose) {
       console.log(
-        `[DSH Desktop Pure] web view -> ${url}${child === null ? ' (reused)' : ' (spawned dsh web)'}`
+        `[DSH Desktop Pure] web view -> ${url} (${ep.name}${child === null ? ', reused' : ', spawned'})`
       );
     }
   } catch (err) {
     // Degrade to the independent Pure page — never quit the app over dsh web.
+    ep.status = 'error';
+    ep.detail = err.message;
     hideLoading();
-    enterPureView(err.message);
+    enterPureView(`无法连接「${ep.name}」：${err.message}`);
     return;
+  } finally {
+    pushPureInfo();
   }
   refreshDshMenu();
+}
+
+/** Connect to the endpoint the Pure page currently has selected. */
+async function connectWeb() {
+  await connectEndpoint(appState.activeEndpoint);
 }
 
 /**
@@ -717,16 +1068,17 @@ async function connectWeb() {
 async function enterWebView() {
   const cfg = appState.cfg;
   if (cfg === null) return;
-  if (appState.url !== null) {
-    const reachable = appState.childAlive
-      ? true
-      : (await probe(appState.url, { assumeHarness: true })) === 'harness';
+  if (appState.url !== null && appState.displayEndpoint !== null) {
+    const ep = getEndpoint(appState.displayEndpoint);
+    const reachable =
+      (ep !== null && ep.childAlive) ||
+      (await probe(appState.url, { assumeHarness: true })) === 'harness';
     if (reachable) {
       showWebOnly(); // preserve the existing session
       return;
     }
   }
-  await connectWeb();
+  await connectEndpoint(appState.displayEndpoint || appState.activeEndpoint || 'local');
 }
 
 /** Re-render the open DSH icon menu (radio state) and refresh the Pure page. */
@@ -749,6 +1101,27 @@ function pushPureInfo() {
 // picks the list for the active UI language.
 const PURE_CHANGELOG = {
   zh: [
+    {
+      version: '0.3.0',
+      date: '2026-08-30',
+      sections: [
+        {
+          title: '新增',
+          items: [
+            '多端点 DSH Web：「DSH Web」分区改为 Tab 栏——Windows 本机（自动判断当前系统）、WSL（Windows 系统自动检测 WSL 与 WSL 内 dsh）、自定义远程地址（用户添加，持久化到 `userData/endpoints.json`）。',
+            'WSL dsh web 自动检测与拉起：复用 WSL 内已运行实例；未运行则自动拉起（`wsl` → `dsh web --host <WSL IP> --trusted-host <WSL IP> --no-open`），WSL IP 取自发行版 eth0。',
+            '远程端点为只读：本端不启动 / 不重启，连接失败时给出原因提示（远端需通过 `--trusted-host` 声明本端主机）。'
+          ]
+        },
+        {
+          title: '变更',
+          items: [
+            '导航策略：除 loopback 外，已注册端点的主机（WSL IP / 远程地址）允许在窗口内加载；其余外链仍交系统浏览器。',
+            '「重启 dsh 服务器」作用于当前选中的端点（本机 / WSL）；远程地址不显示重启入口。'
+          ]
+        }
+      ]
+    },
     {
       version: '0.2.0',
       date: '2026-08-30',
@@ -800,6 +1173,27 @@ const PURE_CHANGELOG = {
     }
   ],
   en: [
+    {
+      version: '0.3.0',
+      date: '2026-08-30',
+      sections: [
+        {
+          title: 'Added',
+          items: [
+            'Multi-endpoint DSH Web: the DSH Web section of the settings page is now a tab bar — Windows local (auto-detected from the host OS), WSL (on Windows: auto-detects WSL and dsh inside the distro), and custom remote addresses (user-added, persisted in `userData/endpoints.json`).',
+            'WSL dsh web auto-detection and spawn: reuses an instance already running inside WSL; otherwise spawns one (`wsl` → `dsh web --host <WSL IP> --trusted-host <WSL IP> --no-open`), the WSL IP taken from the distro\'s eth0.',
+            'Remote endpoints are view-only: no local spawn / restart; connection failures explain the likely cause (the remote side must declare `--trusted-host`).'
+          ]
+        },
+        {
+          title: 'Changed',
+          items: [
+            'Navigation policy: in-window loading now permits loopback plus the host of any registered endpoint (WSL IP / remote address); all other external links still go to the system browser.',
+            '"Restart dsh server" acts on the currently selected endpoint (local / WSL); remote addresses have no restart action.'
+          ]
+        }
+      ]
+    },
     {
       version: '0.2.0',
       date: '2026-08-30',
@@ -875,7 +1269,20 @@ function buildPureInfo() {
       chrome: process.versions.chrome,
       node: process.versions.node
     },
-    changelog: PURE_CHANGELOG[pureLang()] || []
+    changelog: PURE_CHANGELOG[pureLang()] || [],
+    // DSH Web multi-endpoint state (tab bar + detail rows on the Pure page).
+    endpoints: appState.endpoints.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      name: e.name,
+      url: e.url || null,
+      status: e.status,
+      detail: e.detail || '',
+      wslIp: e.kind === 'wsl' && e.wsl ? e.wsl.ip : null,
+      wslDsh: e.kind === 'wsl' && e.wsl ? e.wsl.dshBin : null
+    })),
+    activeEndpoint: appState.activeEndpoint,
+    displayEndpoint: appState.displayEndpoint
   };
 }
 
@@ -1169,9 +1576,9 @@ ipcMain.on('pure:set-theme', (_event, source) => {
   setThemeSource(String(source));
 });
 
-/** "Open DSH Web" from the Pure page: resolve + load the web view. */
-ipcMain.on('pure:open-web', () => {
-  enterWebView();
+/** "Open DSH Web" from the Pure page: resolve + load the given (or selected) endpoint. */
+ipcMain.on('pure:open-web', (_event, id) => {
+  connectEndpoint(typeof id === 'string' && id !== '' ? id : appState.activeEndpoint);
 });
 
 /** Hand a web URL to the system browser (about / repo links from the Pure page). */
@@ -1179,9 +1586,66 @@ ipcMain.on('pure:open-external', (_event, raw) => {
   if (typeof raw === 'string' && /^https?:\/\//i.test(raw)) openExternalSafely(raw);
 });
 
-/** "Restart dsh server" from the Pure page. */
-ipcMain.on('pure:restart', () => {
-  restartServer();
+/** "Restart dsh server" from the Pure page (the given, displayed, or selected endpoint). */
+ipcMain.on('pure:restart', (_event, id) => {
+  restartServer(
+    typeof id === 'string' && id !== ''
+      ? id
+      : appState.displayEndpoint || appState.activeEndpoint
+  );
+});
+
+/** Select a DSH Web endpoint in the Pure page's tab bar (no connection yet). */
+ipcMain.on('pure:select-endpoint', (_event, id) => {
+  const ep = getEndpoint(typeof id === 'string' ? id : '');
+  if (ep === null) return;
+  appState.activeEndpoint = ep.id;
+  pushPureInfo();
+});
+
+/** Add a custom (remote) DSH endpoint from the Pure page. */
+ipcMain.handle('pure:add-endpoint', (_event, name, url) => {
+  const n = typeof name === 'string' ? name.trim().slice(0, 40) : '';
+  const u = typeof url === 'string' ? url.trim().replace(/\/+$/, '') : '';
+  if (n === '') return { ok: false, error: '请填写名称' };
+  let parsed;
+  try {
+    parsed = new URL(u);
+  } catch {
+    return { ok: false, error: '地址格式不正确（需以 http:// 或 https:// 开头）' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, error: '仅支持 http / https 地址' };
+  }
+  if (appState.endpoints.some((e) => e.kind === 'custom' && e.url.replace(/\/+$/, '') === u)) {
+    return { ok: false, error: '该地址已存在' };
+  }
+  appState.endpoints.push({
+    id: 'ep-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+    kind: 'custom',
+    name: n,
+    url: u,
+    child: null,
+    childAlive: false,
+    status: 'unknown',
+    detail: ''
+  });
+  persistCustomEndpoints();
+  appState.activeEndpoint = appState.endpoints[appState.endpoints.length - 1].id;
+  pushPureInfo();
+  return { ok: true };
+});
+
+/** Remove a custom endpoint (local / WSL entries are permanent). */
+ipcMain.on('pure:remove-endpoint', (_event, id) => {
+  const ep = getEndpoint(typeof id === 'string' ? id : '');
+  if (ep === null || ep.kind !== 'custom') return;
+  appState.endpoints = appState.endpoints.filter((e) => e.id !== ep.id);
+  persistCustomEndpoints();
+  if (appState.activeEndpoint === ep.id) appState.activeEndpoint = 'local';
+  // A removed endpoint may still be what the window shows (a remote server we
+  // cannot stop) — keep the session, just retarget the selector.
+  pushPureInfo();
 });
 
 /** Full-window / centered-card layout from the Pure page's switch. */
@@ -1194,68 +1658,102 @@ ipcMain.on('pure:set-layout', (_event, mode) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Restart the dsh web server. Works whether the shell spawned it (child) or
- * reused an existing one: kill the child if we have one, wait for the port to
- * free, and if it's still occupied (a reused external dsh web) force-kill that
- * owner — safe because the port is serving the harness by definition — then
- * spawn a fresh instance and reload.
+ * Restart a dsh web endpoint (local or WSL). Works whether the shell spawned
+ * it (child) or reused an existing one: kill the child if we have one, wait
+ * for the port to free, and if it's still occupied locally force-kill that
+ * owner (safe — the port is serving the harness by definition) — then spawn a
+ * fresh instance and reload. Remote (custom) endpoints are view-only.
  */
-async function restartServer() {
+async function restartServer(epId) {
   const cfg = appState.cfg;
   if (cfg === null || win === null || restarting) return;
+  const ep =
+    getEndpoint(typeof epId === 'string' ? epId : '') ||
+    getEndpoint(appState.displayEndpoint) ||
+    getEndpoint(appState.activeEndpoint);
+  if (ep === null || ep.kind === 'custom') return; // view-only endpoints
   restarting = true;
+  const portUrl =
+    ep.kind === 'wsl' && ep.wsl && ep.wsl.ip
+      ? `http://${ep.wsl.ip}:${cfg.port}`
+      : `http://127.0.0.1:${cfg.port}`;
   setStatus({ state: 'starting', port: cfg.port });
   // Show the theme-aware loading page so the harness area doesn't flash a
   // Chromium "can't reach this page" error while the old server is killed.
   showLoading();
+  ep.status = 'starting';
+  ep.detail = '';
+  pushPureInfo();
   try {
     // 1. Kill the shell-owned child, if any (its exit is ignored: restarting).
-    if (appState.child !== null) {
-      killChild(appState.child);
-      appState.child = null;
+    if (ep.child !== null) {
+      killChild(ep.child);
+      ep.child = null;
+      ep.childAlive = false;
     }
     // 2. Wait for the port to be released (covers child-exit delay).
     if (cfg.port !== 0) {
-      const url = `http://127.0.0.1:${cfg.port}`;
       const deadline = Date.now() + 10_000;
       let free = false;
       while (Date.now() < deadline) {
-        if ((await probeWithGrace(url)) === 'free') {
+        if ((await probeWithGrace(portUrl)) === 'free') {
           free = true;
           break;
         }
         await sleep(300);
       }
-      // 3. Still occupied (reused external dsh web): force-kill its owner.
-      if (!free) {
+      // 3. Still occupied locally (reused external dsh web): force-kill owner.
+      //    WSL processes are invisible to Windows-side tooling — we just wait.
+      if (!free && ep.kind === 'local') {
         const owner = findPortOwner(cfg.port);
         if (owner) {
           forceKillPid(owner.pid);
           const d2 = Date.now() + 5_000;
-          while (Date.now() < d2 && (await probeWithGrace(url)) !== 'free') {
+          while (Date.now() < d2 && (await probeWithGrace(portUrl)) !== 'free') {
             await sleep(300);
           }
         }
       }
+      if (!free && ep.kind === 'wsl') {
+        throw new Error(`WSL 内端口 ${cfg.port} 仍被占用，请在 WSL 终端手动结束占用进程后重试`);
+      }
     }
     // 4. Spawn a fresh dsh web, then point the web view at it.
-    const { url, child } = await spawnOnPort(cfg, cfg.port);
+    let url;
+    let child;
+    if (ep.kind === 'wsl') {
+      ({ url, child } = await resolveWslServer(cfg, ep));
+    } else {
+      ({ url, child } = await spawnOnPort(cfg, cfg.port));
+    }
+    ep.url = url;
+    ep.child = child;
+    ep.childAlive = child !== null;
+    ep.status = 'online';
+    ep.detail = '';
+    if (child !== null) bindChildExit(child, ep);
     appState.url = url;
     appState.child = child;
-    appState.childAlive = true;
-    if (child !== null) bindChildExit(child);
+    appState.childAlive = child !== null;
+    appState.displayEndpoint = ep.id;
     appState.view = 'web';
     hideLoading();
     loadWeb(url);
     layout();
-    setStatus({ state: 'online', url, port: cfg.port, spawned: true });
+    setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
     refreshDshMenu();
   } catch (err) {
     // Degrade to the independent Pure page (non-blocking): the user can retry
     // from the title bar or the Pure page — never quit the app.
-    enterPureView(`重启 dsh 服务器失败：${err.message}`);
+    ep.status = 'error';
+    ep.detail = err.message;
+    if (appState.displayEndpoint === ep.id || appState.activeEndpoint === ep.id) {
+      enterPureView(`重启「${ep.name}」失败：${err.message}`);
+    }
   } finally {
     restarting = false;
+    hideLoading();
+    pushPureInfo();
   }
 }
 
@@ -1263,7 +1761,17 @@ async function restartServer() {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-const appState = { cfg: null, child: null, url: null, view: 'web', layout: 'full', childAlive: false };
+const appState = {
+  cfg: null,
+  child: null, // the dsh web child process of the DISPLAYED endpoint (if we spawned it)
+  url: null, // URL currently loaded in the webView
+  displayEndpoint: null, // endpoint id currently loaded in the webView
+  activeEndpoint: 'local', // endpoint selected in the Pure page's DSH Web tab bar
+  view: 'web',
+  layout: 'full',
+  childAlive: false,
+  endpoints: [] // [{id, kind: 'local'|'wsl'|'custom', name, url, child, childAlive, status, detail, wsl?}]
+};
 let quitting = false;
 // True while a restart is in flight: the child's intentional kill must NOT
 // trigger the "dsh web exited" dialog / app quit.
@@ -1274,25 +1782,30 @@ function fatal(message) {
   app.exit(1);
 }
 
-function bindChildExit(child) {
+function bindChildExit(child, ep) {
   child.on('exit', (code, signal) => {
     // Ignore exits caused by us quitting or by a restart (intentional kill).
     if (quitting || restarting) return;
     const why = code !== null ? `code ${code}` : `signal ${signal}`;
-    // The dsh web process died. Fall back to the independent Pure page rather
-    // than quitting the whole app — the Pure page keeps working without the
-    // server, and the user can retry from the title bar or the Pure page.
-    appState.child = null;
-    appState.childAlive = false;
-    appState.url = null;
-    enterPureView(`dsh web 已退出（${why}）`);
+    ep.child = null;
+    ep.childAlive = false;
+    if (ep.kind !== 'custom') ep.url = null;
+    // The endpoint we are SHOWING died → fall back to the Pure page (which
+    // keeps working without the server). A background endpoint dying only
+    // updates its dot — the window stays where it is.
+    if (appState.displayEndpoint === ep.id) {
+      appState.child = null;
+      appState.childAlive = false;
+      appState.url = null;
+      appState.displayEndpoint = null;
+      enterPureView(`「${ep.name}」的 dsh web 已退出（${why}）`);
+    } else {
+      pushPureInfo();
+    }
   });
 }
 
 async function main() {
-  const cfg = resolveConfig();
-  appState.cfg = cfg;
-
   // The window appears immediately. The default view is DSH Web (per the user's
   // preference); if the server cannot be reached we fall back to the
   // independent DSH Desktop Pure page instead of exiting the app.
@@ -1314,6 +1827,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId('com.deepseek-ai.dsh-desktop-pure');
+    appState.cfg = resolveConfig();
     nativeTheme.themeSource = loadTheme(); // default: follow the system
     appState.layout = loadLayout(); // default: full-window
     nativeTheme.on('updated', () => {
@@ -1323,13 +1837,23 @@ if (!app.requestSingleInstanceLock()) {
     });
     buildAppMenu();
     createTray();
+    // Multi-endpoint DSH Web: local (always) + WSL (Windows) + user-added
+    // remote servers; a light 5 s probe keeps the tab-bar dots fresh.
+    initEndpoints(appState.cfg.urlOverride);
+    if (process.platform === 'win32') detectWslEndpoint();
+    setInterval(() => {
+      tickEndpoints().catch(() => {});
+    }, 5_000);
     main();
   });
 }
 
 app.on('before-quit', () => {
   quitting = true;
-  if (appState.child !== null) killChild(appState.child);
+  // Kill every endpoint child we spawned (local and WSL alike).
+  for (const ep of appState.endpoints) {
+    if (ep.child !== null) killChild(ep.child);
+  }
 });
 
 app.on('window-all-closed', () => {

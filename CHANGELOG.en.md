@@ -8,6 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 
 ---
 
+## [0.3.0] — 2026-08-30
+
+### Added
+
+- **Multi-endpoint DSH Web**: the DSH Web section of the settings page is now a tab bar — **Windows local** (auto-detected from the host OS), **WSL** (on Windows: auto-detects WSL and dsh inside the distro), and **custom remote addresses** (user-added, persisted in `userData/endpoints.json`).
+- **WSL dsh web auto-detection and spawn**: reuses an instance already running inside WSL; otherwise spawns one (`wsl` → `dsh web --host <WSL IP> --trusted-host <WSL IP> --no-open`), the WSL IP taken from the distro's eth0.
+- Remote endpoints are **view-only**: no local spawn / restart; connection failures explain the likely cause (the remote side must declare `--trusted-host`).
+
+### Changed
+
+- Navigation policy: in-window loading now permits loopback plus the host of any registered endpoint (WSL IP / remote address); all other external links still go to the system browser.
+- "Restart dsh server" acts on the currently selected endpoint (local / WSL); remote addresses have no restart action.
+
+---
+
 ## [0.2.0] — 2026-08-30
 
 ### Added

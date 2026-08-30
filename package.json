@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop-pure",
   "productName": "DSH Desktop Pure",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Zero-intrusion pure WebUI desktop shell for DeepSeek Harness (dsh web): read-only, Electron-encapsulated, never modifies DSH source code, resources or config.",
   "main": "main.js",
   "private": true,

@@ -475,6 +475,125 @@
       color: var(--label-secondary);
     }
 
+    /* DSH Web endpoint tab bar (Windows / WSL / custom) */
+    .ep-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .ep-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border: 1px solid var(--border-l2);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--label-secondary);
+      font: inherit;
+      font-size: 12px;
+      line-height: 17px;
+      cursor: pointer;
+      transition: background 0.14s, border-color 0.14s, color 0.14s;
+    }
+    .ep-tab:hover:not(.active) {
+      background: var(--interactive-hover);
+      color: var(--label-primary);
+    }
+    .ep-tab.active {
+      border-color: var(--accent);
+      background: var(--sidebar-active);
+      color: var(--label-primary);
+      font-weight: 500;
+    }
+    .ep-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--label-caption);
+      flex: 0 0 auto;
+    }
+    .ep-dot.online {
+      background: var(--success);
+      box-shadow: 0 0 4px var(--success);
+    }
+    .ep-dot.starting {
+      background: var(--warn);
+      box-shadow: 0 0 4px var(--warn);
+    }
+    .ep-dot.error,
+    .ep-dot.offline {
+      background: var(--error);
+    }
+    .ep-add {
+      padding: 6px 10px;
+    }
+    .ep-add .ep-dot {
+      display: none;
+    }
+    .ep-tab:focus-visible,
+    .ep-remove:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    /* "Add remote DSH" inline form */
+    .ep-form {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 12px 0 2px;
+    }
+    .ep-form input {
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--border-l2);
+      border-radius: 8px;
+      background: var(--bg-base);
+      color: var(--label-primary);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+    .ep-form input:focus {
+      border-color: var(--accent);
+    }
+    .ep-form input::placeholder {
+      color: var(--label-caption);
+    }
+    .ep-form .ep-name {
+      flex: 0 1 160px;
+    }
+    .ep-form .ep-url {
+      flex: 1 1 220px;
+    }
+    .ep-form .btn {
+      height: 34px;
+    }
+    .ep-form-err {
+      flex: 1 1 100%;
+      font-size: 12px;
+      line-height: 17px;
+      color: var(--error);
+    }
+    .ep-remove {
+      background: transparent;
+      border: none;
+      color: var(--label-tertiary);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 6px;
+    }
+    .ep-remove:hover {
+      background: var(--interactive-hover);
+      color: var(--error);
+    }
+    input {
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
     /* Page footer (shown on every section): GitHub repo link. Sits at the
        bottom of the content area in both full-window and card layouts. */
     .page-foot {
@@ -684,7 +803,7 @@
           </div>
           <div class="pane-head" data-section="web" hidden>
             <h2>DSH Web</h2>
-            <p>DSH Desktop Pure 完全独立于 DSH Web —— 即使 dsh web 服务未启动，本页也照常可用。</p>
+            <p>在本机、WSL 与远程服务器之间的 DSH Web 实例间切换 —— DSH Desktop Pure 本身完全独立于 dsh web，服务未启动本页也照常可用。</p>
           </div>
           <div class="pane-head" data-section="changelog" hidden>
             <h2>更新日志</h2>
@@ -724,6 +843,16 @@
             </div>
           </div>
           <div class="pane-body" data-section="web" hidden>
+            <!-- Endpoint tab bar: 本机 / WSL / 自定义远程 + ＋添加 -->
+            <div class="ep-tabs" id="epTabs"></div>
+            <!-- Inline form to add a remote dsh web address -->
+            <div class="ep-form" id="epForm" hidden>
+              <input class="ep-name" id="epFormName" type="text" placeholder="名称（如：家里服务器）" maxlength="40" />
+              <input class="ep-url" id="epFormUrl" type="text" placeholder="http://192.168.x.x:3080" />
+              <button class="btn btn-primary" id="epFormAdd" type="button">添加</button>
+              <button class="btn btn-ghost" id="epFormCancel" type="button">取消</button>
+              <div class="ep-form-err" id="epFormErr" hidden></div>
+            </div>
             <div class="row">
               <div class="row-text">
                 <div class="row-title">连接状态</div>
@@ -733,23 +862,31 @@
             </div>
             <div class="row">
               <div class="row-text">
+                <div class="row-title">地址</div>
+                <div class="row-desc">dsh web 服务监听的 URL</div>
+              </div>
+              <div class="val val-wide" id="valUrl">—</div>
+            </div>
+            <div class="row">
+              <div class="row-text">
                 <div class="row-title">端口</div>
-                <div class="row-desc">dsh web 服务监听的本地端口</div>
+                <div class="row-desc">dsh web 服务监听的端口</div>
               </div>
               <div class="val" id="valPort">—</div>
             </div>
             <div class="row">
               <div class="row-text">
-                <div class="row-title">启动命令</div>
-                <div class="row-desc">用于启动 dsh web 的可执行文件</div>
+                <div class="row-title">运行方式</div>
+                <div class="row-desc">该端点如何运行 dsh web</div>
               </div>
-              <div class="val" id="valDsh">—</div>
+              <div class="val val-wide" id="valDsh">—</div>
             </div>
             <div class="row row-actions">
               <div class="btn-group">
                 <button class="btn btn-primary" id="btnOpenWeb" type="button">打开 DSH Web</button>
                 <button class="btn btn-secondary" id="btnOpenBrowser" type="button" disabled>在浏览器中打开</button>
                 <button class="btn btn-ghost" id="btnRestart" type="button">重启 dsh 服务器</button>
+                <button class="btn btn-ghost" id="btnRemoveEp" type="button" hidden>删除此地址</button>
               </div>
             </div>
           </div>
@@ -809,6 +946,7 @@
       var connDot = $('connDot');
       var connText = $('connText');
       var connDesc = $('connDesc');
+      var valUrl = $('valUrl');
       var valPort = $('valPort');
       var valDsh = $('valDsh');
       var valEngine = $('valEngine');
@@ -818,6 +956,14 @@
       var btnOpenWeb = $('btnOpenWeb');
       var btnOpenBrowser = $('btnOpenBrowser');
       var btnRestart = $('btnRestart');
+      var btnRemoveEp = $('btnRemoveEp');
+      var epTabs = $('epTabs');
+      var epForm = $('epForm');
+      var epFormName = $('epFormName');
+      var epFormUrl = $('epFormUrl');
+      var epFormAdd = $('epFormAdd');
+      var epFormCancel = $('epFormCancel');
+      var epFormErr = $('epFormErr');
       var repoLink = $('repoLink');
       var footRepo = $('footRepo');
       var layoutSwitch = $('layoutSwitch');
@@ -828,6 +974,9 @@
       var SECTIONS = ['appearance', 'web', 'changelog', 'about'];
 
       var lastInfo = null;
+      var eps = []; // latest endpoint snapshot from the shell
+      var activeEp = 'local'; // endpoint selected in the tab bar
+      var lastTabsHtml = '';
 
       function platformName(p) {
         return p === 'win32' ? 'Windows' : p === 'darwin' ? 'macOS' : p === 'linux' ? 'Linux' : String(p || '—');
@@ -860,29 +1009,87 @@
         });
       }
 
-      function applyConnection(info) {
-        var st = info.status || {};
-        if (info.url) {
+      function activeEpObj() {
+        for (var i = 0; i < eps.length; i++) {
+          if (eps[i].id === activeEp) return eps[i];
+        }
+        return null;
+      }
+
+      // Endpoint tab bar (本机 / WSL / custom + ＋添加). Diffed by HTML so the
+      // 5 s status push doesn't needlessly rebuild the buttons.
+      function renderEndpoints() {
+        if (!epTabs) return;
+        var html = eps.map(function (e) {
+          return (
+            '<button class="ep-tab' + (e.id === activeEp ? ' active' : '') + '" data-ep="' +
+            esc(e.id) + '" type="button"><span class="ep-dot ' + esc(e.status || 'unknown') +
+            '"></span><span>' + esc(e.name) + '</span></button>'
+          );
+        }).join('');
+        html += '<button class="ep-tab ep-add" id="epAddBtn" type="button"><span>＋ 添加</span></button>';
+        if (html === lastTabsHtml) return;
+        lastTabsHtml = html;
+        epTabs.innerHTML = html;
+      }
+
+      // Detail rows + action buttons for the SELECTED endpoint (the whole
+      // section tracks info.activeEndpoint, pushed by the shell).
+      function applyEndpointDetail() {
+        var ep = activeEpObj();
+        var st = ep ? ep.status : 'unknown';
+        if (st === 'online') {
           connDot.className = 'pill-dot ok';
           connText.textContent = '已连接';
-          connDesc.textContent = info.url;
-          btnOpenBrowser.disabled = false;
-        } else if (st.state === 'starting') {
+          connDesc.textContent = ep.url || '';
+        } else if (st === 'starting') {
           connDot.className = 'pill-dot warn';
           connText.textContent = '启动中';
-          connDesc.textContent = '正在启动 dsh web 服务…';
-          btnOpenBrowser.disabled = true;
-        } else if (st.reason) {
+          connDesc.textContent = ep.detail || '正在启动 dsh web 服务…';
+        } else if (st === 'error') {
           connDot.className = 'pill-dot err';
-          connText.textContent = '未连接';
-          connDesc.textContent = st.reason;
-          btnOpenBrowser.disabled = true;
+          connText.textContent = '错误';
+          connDesc.textContent = ep.detail || '连接出错';
+        } else if (st === 'offline') {
+          connDot.className = 'pill-dot err';
+          connText.textContent = '已断开';
+          connDesc.textContent = ep.detail || '服务未运行';
         } else {
           connDot.className = 'pill-dot';
-          connText.textContent = '未连接';
-          connDesc.textContent = 'dsh web 服务尚未启动';
-          btnOpenBrowser.disabled = true;
+          connText.textContent = '未启动';
+          connDesc.textContent =
+            ep && ep.kind === 'wsl'
+              ? '点击「打开 DSH Web」在 WSL 中复用或自动启动'
+              : ep && ep.kind === 'custom'
+                ? '点击「打开 DSH Web」连接远程 dsh web'
+                : '点击「打开 DSH Web」自动复用或启动';
         }
+        // Rows
+        if (valUrl) valUrl.textContent = ep && ep.url ? ep.url : '—';
+        if (valPort) {
+          if (ep && (ep.kind === 'local' || ep.kind === 'wsl')) {
+            valPort.textContent = lastInfo && lastInfo.port != null ? String(lastInfo.port) : '—';
+          } else if (ep && ep.url) {
+            try {
+              var u = new URL(ep.url);
+              valPort.textContent = u.port || (u.protocol === 'https:' ? '443' : '80');
+            } catch (e) {
+              valPort.textContent = '—';
+            }
+          } else {
+            valPort.textContent = '—';
+          }
+        }
+        if (valDsh) {
+          if (!ep) valDsh.textContent = '—';
+          else if (ep.kind === 'local') valDsh.textContent = lastInfo && lastInfo.dshBin ? lastInfo.dshBin : 'dsh';
+          else if (ep.kind === 'wsl') valDsh.textContent = 'wsl → ' + (ep.wslDsh || 'dsh');
+          else valDsh.textContent = '远程地址（本端不启动）';
+        }
+        // Actions
+        if (btnRestart) btnRestart.hidden = !ep || ep.kind === 'custom';
+        if (btnRemoveEp) btnRemoveEp.hidden = !ep || ep.kind !== 'custom';
+        if (btnOpenBrowser) btnOpenBrowser.disabled = !(ep && ep.url);
       }
 
       function esc(s) {
@@ -922,12 +1129,14 @@
         valEngine.textContent =
           'Electron ' + (v.electron || '—') + ' · Chromium ' + (v.chrome || '—') + ' · Node ' + (v.node || '—');
         valPlatform.textContent = platformName(info.platform);
-        valPort.textContent = String(info.port != null ? info.port : '—');
-        valDsh.textContent = info.dshBin || '—';
+        // DSH Web endpoint state (tab bar + detail rows)
+        eps = Array.isArray(info.endpoints) ? info.endpoints : [];
+        activeEp = info.activeEndpoint || 'local';
+        renderEndpoints();
+        applyEndpointDetail();
         renderChangelog(info.changelog);
         applyLayout(info.layout);
         selectTheme(info.themeSource);
-        applyConnection(info);
       }
 
       if (api) {
@@ -957,10 +1166,62 @@
             api.setTheme(c.getAttribute('data-theme'));
           });
         });
-        btnOpenWeb.addEventListener('click', function () { api.openWeb(); });
-        btnRestart.addEventListener('click', function () { api.restartServer(); });
+        // Endpoint tab bar: select, or open the "add remote" form.
+        if (epTabs) {
+          epTabs.addEventListener('click', function (ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+            if (!t) return;
+            if (t.id === 'epAddBtn') {
+              epForm.hidden = !epForm.hidden;
+              epFormErr.hidden = true;
+              if (!epForm.hidden) epFormName.focus();
+              return;
+            }
+            var id = t.getAttribute('data-ep');
+            if (id && id !== activeEp) api.selectEndpoint(id);
+          });
+        }
+        if (epFormAdd) {
+          epFormAdd.addEventListener('click', function () {
+            var name = epFormName.value.trim();
+            var url = epFormUrl.value.trim();
+            epFormErr.hidden = true;
+            Promise.resolve(api.addEndpoint(name, url))
+              .then(function (res) {
+                if (res && res.ok) {
+                  epForm.hidden = true;
+                  epFormName.value = '';
+                  epFormUrl.value = '';
+                } else {
+                  epFormErr.textContent = (res && res.error) || '添加失败';
+                  epFormErr.hidden = false;
+                }
+              })
+              .catch(function () {
+                epFormErr.textContent = '添加失败（IPC 无响应）';
+                epFormErr.hidden = false;
+              });
+          });
+        }
+        if (epFormCancel) {
+          epFormCancel.addEventListener('click', function () {
+            epForm.hidden = true;
+            epFormErr.hidden = true;
+          });
+        }
+        btnOpenWeb.addEventListener('click', function () {
+          api.openWeb(activeEp);
+        });
+        btnRestart.addEventListener('click', function () {
+          api.restartServer(activeEp);
+        });
         btnOpenBrowser.addEventListener('click', function () {
-          if (lastInfo && lastInfo.url) api.openExternal(lastInfo.url);
+          var ep = activeEpObj();
+          if (ep && ep.url) api.openExternal(ep.url);
+        });
+        btnRemoveEp.addEventListener('click', function () {
+          var ep = activeEpObj();
+          if (ep && ep.kind === 'custom') api.removeEndpoint(ep.id);
         });
         repoLink.addEventListener('click', function (e) {
           e.preventDefault();
