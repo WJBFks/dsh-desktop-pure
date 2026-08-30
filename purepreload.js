@@ -45,6 +45,10 @@ contextBridge.exposeInMainWorld('dshPure', {
   resetEndpoint(id) {
     ipcRenderer.send('pure:reset-endpoint', String(id));
   },
+  // Probe a custom endpoint immediately (fire-and-forget; the push follows).
+  probeEndpoint(id) {
+    ipcRenderer.send('pure:probe-endpoint', String(id));
+  },
   // Hand a web URL to the system browser (about / repo links).
   openExternal(url) {
     ipcRenderer.send('pure:open-external', String(url));

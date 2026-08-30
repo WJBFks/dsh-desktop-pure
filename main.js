@@ -1885,6 +1885,29 @@ ipcMain.on('pure:reset-endpoint', (_event, id) => {
   if (ep.kind === 'wsl') detectWslEndpoint().catch(() => {});
 });
 
+/**
+ * Immediate probe of a custom endpoint (after 保存 its address): updates the
+ * status dot right away instead of waiting for the 5 s tick.
+ */
+ipcMain.on('pure:probe-endpoint', async (_event, id) => {
+  const ep = getEndpoint(typeof id === 'string' ? id : '');
+  if (!ep || ep.kind !== 'custom' || !ep.url) return;
+  ep.status = 'starting';
+  pushPureInfo();
+  const st = await probeWithGrace(ep.url);
+  if (st === 'harness') {
+    ep.status = 'online';
+    ep.detail = '';
+  } else {
+    ep.status = 'offline';
+    ep.detail =
+      st === 'free'
+        ? '远端 dsh web 未运行'
+        : '地址可达，但不是 dsh web（远端需以 --trusted-host 声明本端主机）';
+  }
+  pushPureInfo();
+});
+
 /** Remove a custom endpoint (local / WSL entries are permanent). */
 ipcMain.on('pure:remove-endpoint', (_event, id) => {
   const ep = getEndpoint(typeof id === 'string' ? id : '');

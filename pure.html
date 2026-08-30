@@ -1403,9 +1403,17 @@
             Promise.resolve(api.editEndpoint(ep.id, patch))
               .then(function (res) {
                 if (res && res.ok) {
+                  var savedEp = ep;
                   editingId = null;
+                  selectedTab = savedEp.id;
+                  renderEndpoints();
                   renderFormMode();
                   applyEndpointDetail(); // the push carries the new values
+                  // React immediately to the new settings: local / WSL run the
+                  // full connect (detect; spawn when dsh web is not running);
+                  // custom just probes its address once.
+                  if (savedEp.kind === 'custom') api.probeEndpoint(savedEp.id);
+                  else api.openWeb(savedEp.id);
                 } else {
                   epFormErr.textContent = (res && res.error) || '保存失败';
                   epFormErr.hidden = false;
