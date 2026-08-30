@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * DSH Desktop Pure — thin Electron shell for the DeepSeek Harness Web GUI.
@@ -933,7 +933,7 @@ function getEndpointView(epId) {
     if (appState.view !== 'web' || appState.currentPage !== epId) return;
     const ep = getEndpoint(epId);
     const name = ep ? ep.name : '';
-    const detail = errorDescription || '杩炴帴澶辫触';
+    const detail = errorDescription || '连接失败';
     if (ep) { ep.status = 'offline'; ep.detail = detail; }
     appState.url = null;
     v.webContents.loadURL(routerUrl(epId, 'error', name, detail));
