@@ -1663,16 +1663,11 @@ ipcMain.on('menu:close', () => closeMenu());
 
 ipcMain.on('menu:action', (_event, id) => {
   closeMenu();
-  // Endpoint entries (页面 menu): STATUS ONLY — select the endpoint on the
-  // Pure page and probe it once. Never connect / spawn from here; starting
-  // dsh web happens exclusively via 「打开 DSH Web」 on the Pure page.
+  // Endpoint entries (页面 menu): open that endpoint's dsh web — reveal the
+  // existing session if it's already showing & reachable, otherwise connect
+  // (reusing a running dsh web, or starting one for local / WSL).
   if (typeof id === 'string' && id.startsWith('endpoint-')) {
-    const ep = getEndpoint(id.slice('endpoint-'.length));
-    if (ep !== null) {
-      appState.activeEndpoint = ep.id;
-      if (appState.view !== 'pure') enterPureView();
-      probeEndpointOnce(ep).catch(() => {});
-    }
+    connectEndpoint(id.slice('endpoint-'.length)).catch(() => {});
     return;
   }
   const action = menuActions[id];
