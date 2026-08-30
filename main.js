@@ -1851,7 +1851,6 @@ ipcMain.on('pure:remove-endpoint', (_event, id) => {
   const ep = getEndpoint(typeof id === 'string' ? id : '');
   if (ep === null || ep.kind !== 'custom') return;
   appState.endpoints = appState.endpoints.filter((e) => e.id !== ep.id);
-  persistCustomEndpoints();
   persistEndpoints();
   if (appState.activeEndpoint === ep.id) appState.activeEndpoint = 'local';
   // A removed endpoint may still be what the window shows (a remote server we
