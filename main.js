@@ -62,9 +62,8 @@ const TITLEBAR_HEIGHT = 40;
 const MENU_WIDTH = 224;
 const MENU_ITEM_H = 30;
 const MENU_SEP_H = 9;
-// Must match menu.html #menu's padding-top (12px of which is a negative
-// margin that keeps the first item visually 8px below the view top).
-const MENU_PAD_V = 20;
+// Must match menu.html #menu's padding-top (box is flush with the view top).
+const MENU_PAD_V = 8;
 const LIGHT_BG = '#f3f4f6';
 const DARK_BG = '#111827';
 const LAYOUT = ['full', 'card']; // Pure page: full-window vs centered-card
@@ -1607,16 +1606,28 @@ const menuActions = {
   restart: () => restartServer()
 };
 
+/** Shadow margin around the menu box (the view is this much larger). */
+const MENU_SHADOW = 12;
+
 /** Open (or switch to) a menu, docked directly beneath its button. */
 function openMenuAt(name, relLeft) {
   if (win === null || menuView === null) return;
   if (!['dsh', 'file', 'view', 'server'].includes(name)) return;
   const items = menuItems()[name];
   const height = menuHeight(items);
-  const [cw] = win.getContentSize();
+  const [cw, ch] = win.getContentSize();
   let x = Math.round(Number(relLeft) || 0);
   if (x + MENU_WIDTH > cw) x = Math.max(0, cw - MENU_WIDTH); // keep within the window
-  menuView.setBounds({ x, y: TITLEBAR_HEIGHT, width: MENU_WIDTH, height });
+  // The view extends MENU_SHADOW beyond the box to the left/right and below
+  // (not above — the top shadow would be hidden by the title bar anyway,
+  // and the view must not overlap it) so the drop shadow is not clipped.
+  // The box sits 12px right inside the view, flush with its top.
+  menuView.setBounds({
+    x: x - MENU_SHADOW,
+    y: TITLEBAR_HEIGHT,
+    width: MENU_WIDTH + MENU_SHADOW * 2,
+    height: height + MENU_SHADOW
+  });
   if (!menuView.webContents.isDestroyed()) {
     menuView.webContents.send('menu:show', { name, items });
   }

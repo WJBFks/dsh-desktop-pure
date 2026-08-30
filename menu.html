@@ -39,17 +39,19 @@
       user-select: none;
     }
     #menu {
-      width: 100%;
-      /* 28px taller than the view: 12px above (negative margin keeps the
-         items aligned) + 16px below — room for the drop shadow. */
-      height: calc(100% + 28px);
-      margin-top: -12px;
+      /* The view bounds (main.js openMenuAt) extend 12px beyond this box to
+         the left/right and below to hold the drop shadow: the box is placed
+         at (12,0), flush with the view top, and is exactly the content. */
+      position: absolute;
+      left: 12px;
+      top: 0;
+      width: calc(100% - 24px);
+      height: calc(100% - 12px);
       box-sizing: border-box;
       background: var(--menu-bg);
-      /* Padding-top must equal MENU_PAD_V in main.js (the 12px negative
-         margin keeps the first item 8px below the view top, as before);
-         item heights must equal MENU_ITEM_H / MENU_SEP_H. */
-      padding: 20px 0 16px;
+      /* Top/bottom padding must equal MENU_PAD_V in main.js; item heights
+         must equal MENU_ITEM_H / MENU_SEP_H so the box matches the content. */
+      padding: 8px 12px 8px;
       border-radius: 10px;
       box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
       display: flex;
@@ -205,9 +207,10 @@
         api.onHide(clear);
       }
 
-      // Click on the menu's own padding (not an item) -> dismiss.
-      menuEl.addEventListener('click', function (e) {
-        if (!e.target.closest('.dd-item') && api) api.close();
+      // Click anywhere that is not a menu item (the box padding, or the
+      // transparent shadow margin the view extends into) -> dismiss.
+      document.body.addEventListener('click', function (e) {
+        if (api && !e.target.closest('.dd-item')) api.close();
       });
 
       // Escape dismisses (when this view has focus).
