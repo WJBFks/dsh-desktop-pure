@@ -1105,11 +1105,10 @@ function enterPureView(reason) {
 }
 
 /**
- * Connect (or reconnect) to a DSH endpoint, then show it in the webView.
- * Session preservation applies per endpoint: if the window is already showing
- * a reachable copy of THIS endpoint, just reveal it — no reload. Switching
- * BETWEEN endpoints re-navigates (the servers are separate; their session
- * state lives on each server).
+ * Switch to an endpoint's PAGE. The page owns its components — 加载中（黄灯
+ * + 页面自己的加载）/ 加载失败（红灯 + 空白页）/ 主内容（绿灯）— and the
+ * switch happens IMMEDIATELY: the web view is revealed and navigated right
+ * away; connecting / starting runs in the background.
  */
 async function connectEndpoint(id) {
   const cfg = appState.cfg;
@@ -1117,31 +1116,10 @@ async function connectEndpoint(id) {
   const ep = getEndpoint(id);
   if (ep === null) return;
   appState.activeEndpoint = ep.id;
-
-  // Switch to the web view IMMEDIATELY — the page plays its own load (the
-  // browser's spinner) or the blank page; the connection runs in the
-  // background. The title bar shows the starting state.
-  const immediateUrl =
-    appState.displayEndpoint === ep.id
-      ? appState.url
-      : ep.kind === 'custom'
-        ? ep.url
-        : ep.urlOverride;
   appState.view = 'web';
   appState.currentPage = ep.id;
-  ep.status = 'starting';
-  ep.detail = '';
-  layout();
-  if (immediateUrl !== null) {
-    appState.url = immediateUrl;
-    appState.displayEndpoint = ep.id;
-    if (ep.url !== immediateUrl) ep.url = immediateUrl;
-    loadWeb(immediateUrl);
-  }
-  pushPureInfo();
-  setStatus({});
 
-  // Already showing this endpoint and it still answers → done, keep session.
+  // Already showing this endpoint and it still answers → keep the session.
   if (appState.displayEndpoint === ep.id && appState.url !== null) {
     const reachable =
       ep.childAlive || (await probe(appState.url, { assumeHarness: true })) === 'harness';
@@ -1149,13 +1127,32 @@ async function connectEndpoint(id) {
       ep.status = 'online';
       ep.wasOnline = true;
       ep.detail = '';
+      showWebOnly();
       pushPureInfo();
-      setStatus({});
-      refreshDshMenu();
       return;
     }
   }
 
+  // --- Enter the page immediately -------------------------------
+  // Known address (this endpoint's own, or a manual override): let the page
+  // play its own load. Unknown (local/WSL, no running server yet): blank
+  // page + 加载中 (yellow dot).
+  const immediateUrl = ep.kind === 'custom' ? ep.url : ep.urlOverride || null;
+  appState.displayEndpoint = ep.id;
+  if (immediateUrl !== null) {
+    appState.url = immediateUrl;
+    ep.url = immediateUrl;
+  } else {
+    appState.url = null;
+  }
+  ep.status = 'starting';
+  ep.detail = '';
+  layout();
+  loadWeb(immediateUrl !== null ? immediateUrl : 'about:blank');
+  pushPureInfo();
+  setStatus({});
+
+  // --- Connect in the background --------------------------------
   try {
     let url;
     let child = null;
@@ -1187,12 +1184,12 @@ async function connectEndpoint(id) {
     ep.wasOnline = true;
     ep.detail = '';
     if (child !== null) bindChildExit(child, ep);
+    const renav = url !== appState.url; // entered on a different/blank page?
     appState.url = url;
     appState.child = child;
     appState.childAlive = child !== null;
     appState.displayEndpoint = ep.id;
-    hideLoading();
-    if (url !== appState.url) loadWeb(url);
+    if (renav) loadWeb(url);
     setStatus({});
     if (cfg.verbose) {
       console.log(
@@ -1200,18 +1197,14 @@ async function connectEndpoint(id) {
       );
     }
   } catch (err) {
-    // Connection failed: switch to the web view showing a blank page, with
-    // the title bar reporting the reason. The endpoint's dot/detail also
-    // show the error; 「打开 DSH Web」 can retry.
+    // 加载失败组件: blank page + red dot; the reason is on the title bar
+    // and in the endpoint detail. Retry via 「打开 DSH Web」.
     ep.status = 'error';
     ep.detail = err.message;
-    hideLoading();
-    appState.view = 'web';
-    appState.displayEndpoint = ep.id;
-    appState.currentPage = ep.id;
     appState.url = null;
     appState.child = null;
     appState.childAlive = false;
+    appState.displayEndpoint = ep.id;
     layout();
     loadWeb('about:blank');
     setStatus({ reason: `无法连接「${ep.name}」：${err.message}` });
