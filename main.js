@@ -1886,26 +1886,51 @@ ipcMain.on('pure:reset-endpoint', (_event, id) => {
 });
 
 /**
- * Immediate probe of a custom endpoint (after 保存 its address): updates the
- * status dot right away instead of waiting for the 5 s tick.
+ * One-shot status probe for an endpoint (used right after 保存 its settings):
+ * updates the status dot without connecting or switching the view. local /
+ * WSL probe the address their CURRENT settings derive to (port + override);
+ * custom probes its URL.
  */
-ipcMain.on('pure:probe-endpoint', async (_event, id) => {
-  const ep = getEndpoint(typeof id === 'string' ? id : '');
-  if (!ep || ep.kind !== 'custom' || !ep.url) return;
+async function probeEndpointOnce(ep) {
+  let target = null;
+  if (ep.kind === 'custom') {
+    target = ep.url;
+  } else if (ep.urlOverride) {
+    target = ep.urlOverride;
+  } else if (ep.url) {
+    target = ep.url;
+  } else if (ep.kind === 'wsl' && ep.wsl && ep.wsl.ip) {
+    target = `http://${ep.wsl.ip}:${ep.port}`;
+  } else {
+    target = `http://127.0.0.1:${ep.port}`;
+  }
+  if (!target) return;
   ep.status = 'starting';
   pushPureInfo();
-  const st = await probeWithGrace(ep.url);
+  const st = await probeWithGrace(target);
   if (st === 'harness') {
     ep.status = 'online';
     ep.detail = '';
+  } else if (st === 'free') {
+    ep.status = 'offline';
+    ep.detail =
+      ep.kind === 'custom'
+        ? '远端 dsh web 未运行'
+        : 'dsh web 未运行（点击「打开 DSH Web」自动启动）';
   } else {
     ep.status = 'offline';
     ep.detail =
-      st === 'free'
-        ? '远端 dsh web 未运行'
-        : '地址可达，但不是 dsh web（远端需以 --trusted-host 声明本端主机）';
+      ep.kind === 'custom'
+        ? '地址可达，但不是 dsh web（远端需以 --trusted-host 声明本端主机）'
+        : '该地址已被其他服务占用';
   }
   pushPureInfo();
+}
+
+ipcMain.on('pure:probe-endpoint', (_event, id) => {
+  const ep = getEndpoint(typeof id === 'string' ? id : '');
+  if (!ep || ep.kind === 'custom' ? false : !ep) return;
+  probeEndpointOnce(ep).catch(() => {});
 });
 
 /** Remove a custom endpoint (local / WSL entries are permanent). */
