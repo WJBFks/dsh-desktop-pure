@@ -1159,11 +1159,14 @@ async function connectEndpoint(id) {
       );
     }
   } catch (err) {
-    // Degrade to the independent Pure page — never quit the app over dsh web.
+    // Connection failed: DO NOT force a view switch. From the 页面 menu the
+    // window stays on the (blank) web view with the title bar reporting the
+    // failure; from the Pure page the user simply stays put. The endpoint's
+    // dot/detail show the reason, and 「打开 DSH Web」 can retry.
     ep.status = 'error';
     ep.detail = err.message;
     hideLoading();
-    enterPureView(`无法连接「${ep.name}」：${err.message}`);
+    setStatus({ state: 'offline', reason: `无法连接「${ep.name}」：${err.message}` });
     return;
   } finally {
     pushPureInfo();
