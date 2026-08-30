@@ -617,12 +617,14 @@ async function detectWslEndpoint() {
   try {
     ep.wsl = await wslProbe();
     if (!ep.wsl.installed) {
+      // WSL itself is missing (environment problem): error, re-detect later.
       ep.status = 'error';
       ep.detail = '未检测到 WSL';
     } else if (!ep.wsl.dshBin && !ep.dshOverride) {
-      // A manual dsh path (via 编辑) counts even when auto-detection fails.
+      // WSL is fine but dsh is not installed there: never connected → gray
+      // (unknown), with the hint kept in detail.
       ep.status = 'unknown';
-      ep.detail = '';
+      ep.detail = 'WSL 内未安装 dsh';
     } else {
       ep.status = 'unknown';
       ep.detail = '';
@@ -1543,7 +1545,13 @@ function menuItems() {
         active: appState.view === 'web' && appState.displayEndpoint === ep.id
       })),
       { type: 'separator' },
-      { id: 'view-pure', label: '桌面端配置', type: 'radio', checked: appState.view === 'pure' }
+      {
+        id: 'view-pure',
+        label: '桌面端配置',
+        type: 'status',
+        status: 'pure',
+        active: appState.view === 'pure'
+      }
     ],
     file: [
       { id: 'reload', label: '重新加载', accelerator: accText('CmdOrCtrl+R'), enabled: true },

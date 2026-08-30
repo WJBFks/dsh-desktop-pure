@@ -526,7 +526,11 @@
       background: var(--warn);
       box-shadow: 0 0 4px var(--warn);
     }
-    /* 红 = 连接过后来断开/出错；灰（默认色）= 从未连接过（unknown） */
+    /* 蓝 = 桌面端配置；灰（默认色）= 从未连接过（unknown） */
+    .ep-dot.pure {
+      background: var(--accent);
+    }
+    /* 红 = 连接过后来断开/出错 */
     .ep-dot.error,
     .ep-dot.offline {
       background: var(--error);
