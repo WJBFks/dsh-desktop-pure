@@ -1607,8 +1607,8 @@ const menuActions = {
   restart: () => restartServer()
 };
 
-/** Shadow margin around the menu box (the view is this much larger). */
-const MENU_SHADOW = 12;
+/** Shadow margin: the view extends this far left/right/below the box. */
+const MENU_SHADOW = 6;
 
 /** Open (or switch to) a menu, docked directly beneath its button. */
 function openMenuAt(name, relLeft) {
