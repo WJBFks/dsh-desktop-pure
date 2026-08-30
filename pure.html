@@ -558,14 +558,6 @@
     .ep-form .row {
       padding: 10px 0;
     }
-    /* Field separator sits ABOVE the title (not under the description), so
-       a field reads as one unit: ── 名称 / 描述 / 输入框. */
-    .ep-form .row-top {
-      border-top: 1px solid var(--border-l2);
-      border-bottom: none;
-      margin-top: 14px;
-      padding-top: 14px;
-    }
     .ep-form input:focus {
       border-color: var(--accent);
     }
@@ -857,7 +849,7 @@
             <div id="epDetailRows">
               <!-- Add-remote form, shown when the 「添加」 tab is selected -->
               <div class="ep-form" id="epForm" hidden>
-                <div class="row row-top">
+                <div class="row">
                   <div class="row-text">
                     <div class="row-title">名称</div>
                     <div class="row-desc">这个远程 DSH 的显示名</div>
@@ -866,7 +858,7 @@
                 <div class="row">
                   <input id="epFormName" type="text" placeholder="如：家里服务器" maxlength="40" />
                 </div>
-                <div class="row row-top">
+                <div class="row">
                   <div class="row-text">
                     <div class="row-title">地址</div>
                     <div class="row-desc">远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）</div>
