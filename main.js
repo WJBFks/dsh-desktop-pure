@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * DSH Desktop Pure — thin Electron shell for the DeepSeek Harness Web GUI.
@@ -940,7 +940,15 @@ function getEndpointView(epId) {
     setStatus({ reason: `杩炴帴鏂紑锛?{detail}` });
     pushPureInfo();
   });
+  // Add to content view, then re-order so endpoint views stay BELOW
+  // pureView / titlebarView / menuView (which must remain clickable).
   win.contentView.addChildView(v);
+  const all = win.contentView.getChildViews();
+  for (const av of all) win.contentView.removeChildView(av);
+  for (const ev of Object.values(appState.views)) win.contentView.addChildView(ev);
+  if (pureView) win.contentView.addChildView(pureView);
+  if (titlebarView) win.contentView.addChildView(titlebarView);
+  if (menuView) win.contentView.addChildView(menuView);
   v.setBounds({ x: -100000, y: 0, width: 0, height: 0 });
   appState.views[epId] = v;
   return v;
