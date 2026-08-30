@@ -254,9 +254,11 @@
         } else if (state === 'starting') {
           label.textContent = prefix + '正在连接…';
         } else if (state === 'unknown') {
-          label.textContent = prefix + (status.reason || '未启动');
+          // Never connected since this launch.
+          label.textContent = prefix + '未连接';
         } else {
-          label.textContent = prefix + '已断开' + (status.reason ? '（' + status.reason + '）' : '');
+          // Was connected, then dropped (or failed after having run).
+          label.textContent = prefix + '已断开';
         }
       }
 

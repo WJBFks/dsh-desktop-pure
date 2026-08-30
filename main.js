@@ -356,6 +356,7 @@ function loadCustomEndpoints() {
       url: normalizeEndpointUrl(e.url),
       child: null,
       childAlive: false,
+      wasOnline: false,
       status: 'unknown',
       detail: ''
     }));
@@ -405,6 +406,7 @@ function makeLocalEndpoint() {
     port: cfg.port != null ? cfg.port : DEFAULT_PORT,
     dshBin: cfg.dshBin || 'dsh',
     urlOverride: null, // manual URL (via 编辑); null = derive from the port
+    wasOnline: false, // connected at least once since this launch (灰点 vs 红点)
     url: null,
     child: null,
     childAlive: false,
@@ -422,6 +424,7 @@ function makeWslEndpoint() {
     port: cfg.port != null ? cfg.port : DEFAULT_PORT,
     dshOverride: null, // manual WSL-side dsh path; null = auto-detect
     urlOverride: null, // manual URL (via 编辑); null = derive from WSL IP + port
+    wasOnline: false, // connected at least once since this launch (灰点 vs 红点)
     url: null,
     child: null,
     childAlive: false,
@@ -485,6 +488,7 @@ function initEndpoints(urlOverride) {
       url: urlOverride,
       child: null,
       childAlive: false,
+      wasOnline: false,
       status: 'unknown',
       detail: ''
     });
@@ -639,6 +643,7 @@ async function tickEndpoints() {
     for (const ep of appState.endpoints) {
       if (ep.childAlive) {
         ep.status = 'online';
+        ep.wasOnline = true;
         continue;
       }
       // WSL endpoint in an error state (e.g. dsh not installed): re-detect
@@ -663,8 +668,10 @@ async function tickEndpoints() {
         else target = `http://127.0.0.1:${ep.port}`;
       }
       const st = await probeWithGrace(target);
-      if (st === 'harness') ep.status = 'online';
-      else if (st === 'free') {
+      if (st === 'harness') {
+        ep.status = 'online';
+        ep.wasOnline = true;
+      } else if (st === 'free') {
         ep.status = 'offline';
         // The server we connected to went away: clear the displayed URL.
         if (appState.displayEndpoint === ep.id && appState.url === ep.url) {
@@ -843,14 +850,20 @@ function pageStatus() {
     return { state: 'pure', pageName: '桌面端配置' };
   }
   const ep = getEndpoint(appState.currentPage);
-  if (ep === null) return { state: 'unknown', reason: '页面不存在' };
+  if (ep === null) return { state: 'unknown', reason: '未连接', pageName: '未知' };
   if (ep.status === 'online' || ep.childAlive) {
     return { state: 'online', url: ep.url || appState.url, spawned: ep.childAlive, pageName: ep.name };
   }
   if (ep.status === 'starting') return { state: 'starting', pageName: ep.name };
-  if (ep.status === 'error') return { state: 'offline', reason: ep.detail || '连接出错', pageName: ep.name };
-  if (ep.status === 'offline') return { state: 'offline', reason: ep.detail || '未连接', pageName: ep.name };
-  return { state: 'unknown', reason: '未启动', pageName: ep.name };
+  // 红点（已断开）：本次启动后成功连接过、但后来断开 / 出错。
+  // 灰点（未连接）：从未连接过（含"没连上就报错"的情况）。
+  if (ep.status === 'offline') return { state: 'offline', pageName: ep.name };
+  if (ep.status === 'error') {
+    return ep.wasOnline
+      ? { state: 'offline', pageName: ep.name }
+      : { state: 'unknown', reason: '未连接', pageName: ep.name };
+  }
+  return { state: 'unknown', reason: '未连接', pageName: ep.name };
 }
 
 /** Re-broadcast the current page's status to the title bar. */
@@ -1164,6 +1177,7 @@ async function connectEndpoint(id) {
     ep.child = child;
     ep.childAlive = child !== null;
     ep.status = 'online';
+    ep.wasOnline = true;
     ep.detail = '';
     if (child !== null) bindChildExit(child, ep);
     appState.url = url;
@@ -1805,6 +1819,7 @@ ipcMain.handle('pure:add-endpoint', (_event, name, url) => {
     url: u,
     child: null,
     childAlive: false,
+    wasOnline: false,
     status: 'unknown',
     detail: ''
   });
@@ -1968,6 +1983,7 @@ async function probeEndpointOnce(ep) {
   const st = await probeWithGrace(target);
   if (st === 'harness') {
     ep.status = 'online';
+    ep.wasOnline = true;
     ep.detail = '';
   } else if (st === 'free') {
     ep.status = 'offline';
@@ -2093,6 +2109,7 @@ async function restartServer(epId) {
     ep.child = child;
     ep.childAlive = child !== null;
     ep.status = 'online';
+    ep.wasOnline = true;
     ep.detail = '';
     if (child !== null) bindChildExit(child, ep);
     appState.url = url;
