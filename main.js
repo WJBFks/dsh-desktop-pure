@@ -903,14 +903,25 @@ function hardenWebContents(wc) {
   });
   // No webviews of any kind.
   wc.on('will-attach-webview', (event) => event.preventDefault());
-  // 加载失败组件: the moment a page fails to load (DNS / refused / 403…),
-  // land on the blank page immediately instead of showing Chromium's error
-  // page. The reason is carried by the endpoint status / title bar.
+  // 加载失败组件: the moment a backend page fails to load (DNS / refused /
+  // 403…), land on the ROUTER error page immediately.
   wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    if (errorCode === -3 /* ERR_ABORTED: superseded navigation */) return;
-    if (validatedURL && validatedURL !== 'about:blank' && appState.view === 'web') {
-      loadWeb('about:blank');
+    if (errorCode === -3 /* ERR_ABORTED */) return;
+    if (!validatedURL || validatedURL.startsWith('file://') || validatedURL === 'about:blank') return;
+    if (appState.view !== 'web') return;
+    const epId = appState.currentPage;
+    const ep = getEndpoint(epId);
+    const name = ep ? ep.name : '';
+    const detail = errorDescription || '连接失败';
+    if (ep) {
+      ep.status = 'offline';
+      ep.detail = detail;
     }
+    appState.url = null;
+    appState.displayEndpoint = null;
+    loadWeb(routerUrl(epId || '', 'error', name, detail));
+    setStatus({ reason: `连接断开：${detail}` });
+    pushPureInfo();
   });
 }
 
@@ -1143,11 +1154,24 @@ function enterPureView(reason) {
   refreshDshMenu();
 }
 
+/** Build the in-shell router page URL for an endpoint (loading / error / offline). */
+function routerUrl(epId, status, name, detail) {
+  const params = new URLSearchParams({ ep: epId || '', status: status || 'starting' });
+  if (name) params.set('name', name);
+  if (detail) params.set('detail', detail);
+  return 'file://' + path.join(__dirname, 'router.html') + '?' + params.toString();
+}
+
 /**
- * Switch to an endpoint's PAGE. The page owns its components — 加载中（黄灯
- * + 页面自己的加载）/ 加载失败（红灯 + 空白页）/ 主内容（绿灯）— and the
- * switch happens IMMEDIATELY: the web view is revealed and navigated right
- * away; connecting / starting runs in the background.
+ * Switch to an endpoint's PAGE (the in-shell router). The page owns its
+ * components: 加载中 / 加载失败 / 主内容(后端). Rules:
+ *   1. Click → enter the router page IMMEDIATELY (loading component)
+ *   2. Backend connects in parallel
+ *   3. Success → update global state (ep.status = online)
+ *   4. Success + still on this route → jump to the backend
+ *   5. Success + already switched away → state only, no navigation
+ *   6. Next visit to an already-connected route → jump straight to the
+ *      backend (skip the router page)
  */
 async function connectEndpoint(id) {
   const cfg = appState.cfg;
@@ -1214,26 +1238,27 @@ async function connectEndpoint(id) {
     }
   }
 
-  // --- Enter the page immediately -------------------------------
-  // Known address (this endpoint's own, or a manual override): let the page
-  // play its own load. Unknown (local/WSL, no running server yet): blank
-  // page + 加载中 (yellow dot).
-  const immediateUrl = ep.kind === 'custom' ? ep.url : ep.urlOverride || null;
-  appState.displayEndpoint = ep.id;
-  if (immediateUrl !== null) {
-    appState.url = immediateUrl;
-    ep.url = immediateUrl;
-  } else {
-    appState.url = null;
+  // ⑥ Backend already connected → jump straight to the backend (skip router).
+  if (ep.status === 'online' && ep.url !== null) {
+    layout();
+    appState.url = ep.url;
+    appState.displayEndpoint = ep.id;
+    loadWeb(ep.url, { fade: true });
+    setStatus({});
+    pushPureInfo();
+    refreshDshMenu();
+    return;
   }
+
+  // ① Enter the ROUTER page immediately (in-shell, loading component).
+  //    The backend connects in parallel; on success we jump to the real
+  //    dsh web URL, on failure the router shows the error component.
   ep.status = 'starting';
   ep.detail = '';
+  appState.displayEndpoint = ep.id;
+  appState.url = null; // showing the router page, not a backend
   layout();
-  // Cross-instance navigation: fade the fresh page in (blank-page loads are
-  // white-on-white — no fade needed).
-  loadWeb(immediateUrl !== null ? immediateUrl : 'about:blank', {
-    fade: immediateUrl !== null
-  });
+  loadWeb(routerUrl(ep.id, 'starting', ep.name));
   pushPureInfo();
   setStatus({});
 
@@ -1288,7 +1313,7 @@ async function connectEndpoint(id) {
       );
     }
   } catch (err) {
-    // 加载失败组件 (blank page + red dot) — but ONLY when the user is still
+    // 加载失败组件 (router page, red dot) — but ONLY when the user is still
     // on this page; a stale failure must never yank the view away.
     ep.status = 'error';
     ep.detail = err.message;
@@ -1298,7 +1323,7 @@ async function connectEndpoint(id) {
       appState.childAlive = false;
       appState.displayEndpoint = ep.id;
       layout();
-      loadWeb('about:blank');
+      loadWeb(routerUrl(ep.id, 'error', ep.name, err.message));
       setStatus({ reason: `无法连接「${ep.name}」：${err.message}` });
     }
     return;
