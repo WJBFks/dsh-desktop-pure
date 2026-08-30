@@ -710,6 +710,7 @@ function isRegisteredEndpointUrl(raw) {
 }
 
 function isAllowedNavigation(raw) {
+  if (raw === 'about:blank') return true;
   return isLoopbackHttp(raw) || isRegisteredEndpointUrl(raw);
 }
 
@@ -1159,13 +1160,19 @@ async function connectEndpoint(id) {
       );
     }
   } catch (err) {
-    // Connection failed: DO NOT force a view switch. From the 页面 menu the
-    // window stays on the (blank) web view with the title bar reporting the
-    // failure; from the Pure page the user simply stays put. The endpoint's
-    // dot/detail show the reason, and 「打开 DSH Web」 can retry.
+    // Connection failed: switch to the web view showing a blank page, with
+    // the title bar reporting the reason. The endpoint's dot/detail also
+    // show the error; 「打开 DSH Web」 can retry.
     ep.status = 'error';
     ep.detail = err.message;
     hideLoading();
+    appState.view = 'web';
+    appState.displayEndpoint = ep.id;
+    appState.url = null;
+    appState.child = null;
+    appState.childAlive = false;
+    layout();
+    loadWeb('about:blank');
     setStatus({ state: 'offline', reason: `无法连接「${ep.name}」：${err.message}` });
     return;
   } finally {
