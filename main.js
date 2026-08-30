@@ -940,6 +940,8 @@ function getEndpointView(epId) {
     setStatus({ reason: `杩炴帴鏂紑锛?{detail}` });
     pushPureInfo();
   });
+  // Register first so the z-order re-arrangement below includes it.
+  appState.views[epId] = v;
   // Add to content view, then re-order so endpoint views stay BELOW
   // pureView / titlebarView / menuView (which must remain clickable).
   win.contentView.addChildView(v);
@@ -950,7 +952,6 @@ function getEndpointView(epId) {
   if (titlebarView) win.contentView.addChildView(titlebarView);
   if (menuView) win.contentView.addChildView(menuView);
   v.setBounds({ x: -100000, y: 0, width: 0, height: 0 });
-  appState.views[epId] = v;
   return v;
 }
 
@@ -1867,7 +1868,7 @@ ipcMain.on('menu:action', (_event, id) => {
   // existing session if it's already showing & reachable, otherwise connect
   // (reusing a running dsh web, or starting one for local / WSL).
   if (typeof id === 'string' && id.startsWith('endpoint-')) {
-    connectEndpoint(id.slice('endpoint-'.length)).catch(() => {});
+    connectEndpoint(id.slice('endpoint-'.length)).catch(e => console.error('[menu] connectEndpoint error:', e));
     return;
   }
   const action = menuActions[id];
