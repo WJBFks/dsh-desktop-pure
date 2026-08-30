@@ -1278,6 +1278,7 @@ async function connectEndpoint(id) {
   appState.displayEndpoint = ep.id;
   appState.url = null; // showing the router page, not a backend
   layout();
+  console.log(`[connectEndpoint] slow-path: ep=${ep.id} webView=${webView !== null} views=${Object.keys(appState.views).join(',')}`);
   loadWeb(routerUrl(ep.id, 'starting', ep.name));
   pushPureInfo();
   setStatus({});
