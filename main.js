@@ -833,7 +833,7 @@ function setThemeSource(source) {
 // ---------------------------------------------------------------------------
 
 let win = null; // BaseWindow
-let webView = null; // WebContentsView: the dsh web page (kept alive to preserve its session)
+let webView = null; // WebContentsView: currently-shown endpoint view (dynamic reference)
 let pureView = null; // WebContentsView: the shell's own DSH Desktop Pure page (file://)
 
 let titlebarView = null; // WebContentsView: the one-row title bar (middle)
@@ -903,26 +903,6 @@ function hardenWebContents(wc) {
   });
   // No webviews of any kind.
   wc.on('will-attach-webview', (event) => event.preventDefault());
-  // 加载失败组件: the moment a backend page fails to load (DNS / refused /
-  // 403…), land on the ROUTER error page immediately.
-  wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    if (errorCode === -3 /* ERR_ABORTED */) return;
-    if (!validatedURL || validatedURL.startsWith('file://') || validatedURL === 'about:blank') return;
-    if (appState.view !== 'web') return;
-    const epId = appState.currentPage;
-    const ep = getEndpoint(epId);
-    const name = ep ? ep.name : '';
-    const detail = errorDescription || '连接失败';
-    if (ep) {
-      ep.status = 'offline';
-      ep.detail = detail;
-    }
-    appState.url = null;
-    appState.displayEndpoint = null;
-    loadWeb(routerUrl(epId || '', 'error', name, detail));
-    setStatus({ reason: `连接断开：${detail}` });
-    pushPureInfo();
-  });
 }
 
 /**
@@ -975,19 +955,8 @@ function windowOptions() {
 function createWindow() {
   win = new BaseWindow(windowOptions());
 
-  // dsh web page. Kept alive (parked off-screen when not shown) so its session
-  // survives switching to/from the Pure page.
-  webView = new WebContentsView({
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true
-    }
-  });
-
   // The shell's own DSH Desktop Pure page (file://, independent of dsh web).
+  // Endpoint views are created lazily via getEndpointView().
   pureView = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, 'purepreload.js'),
@@ -1026,10 +995,8 @@ function createWindow() {
   });
   menuView.setBackgroundColor('#00000000'); // fully transparent outside the menu
 
-  // Stacking order: later-added views sit on top. Only one of webView /
-  // pureView is visible at a time (layout() parks the other off-screen);
-  // the title bar and menu sit above the content.
-  win.contentView.addChildView(webView);
+  // Stacking order: later-added views sit on top. Endpoint views are added
+  // lazily (getEndpointView); the Pure page, title bar, and menu are static.
   win.contentView.addChildView(pureView);
   win.contentView.addChildView(titlebarView);
   win.contentView.addChildView(menuView);
@@ -1037,14 +1004,8 @@ function createWindow() {
   menuView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); // hidden until opened
   win.on('resize', layout);
 
-  // Harden the dsh web page; the Pure page is a local file:// we fully control.
-  hardenWebContents(webView.webContents);
+  // The Pure page is a local file:// we fully control.
   hardenWebContents(pureView.webContents);
-  // Pin the window title (taskbar / window list) even though the page sets its own <title>.
-  webView.webContents.on('page-title-updated', (event) => {
-    event.preventDefault();
-    win.setTitle(WINDOW_TITLE);
-  });
 
   titlebarView.webContents.loadFile(path.join(__dirname, 'titlebar.html'));
   titlebarView.webContents.once('did-finish-load', () => {
@@ -1068,6 +1029,10 @@ function createWindow() {
   });
 
   win.on('closed', () => {
+    for (const v of Object.values(appState.views)) {
+      if (!v.webContents.isDestroyed()) v.webContents.close();
+    }
+    appState.views = {};
     win = null;
     webView = null;
     pureView = null;
@@ -1240,9 +1205,10 @@ async function connectEndpoint(id) {
 
   // ⑥ Backend already connected → jump straight to the backend (skip router).
   if (ep.status === 'online' && ep.url !== null) {
-    layout();
+    getEndpointView(ep.id); // ensure the view exists
     appState.url = ep.url;
     appState.displayEndpoint = ep.id;
+    layout();
     loadWeb(ep.url, { fade: true });
     setStatus({});
     pushPureInfo();
@@ -1253,6 +1219,7 @@ async function connectEndpoint(id) {
   // ① Enter the ROUTER page immediately (in-shell, loading component).
   //    The backend connects in parallel; on success we jump to the real
   //    dsh web URL, on failure the router shows the error component.
+  getEndpointView(ep.id); // ensure the view exists
   ep.status = 'starting';
   ep.detail = '';
   appState.displayEndpoint = ep.id;
@@ -2286,14 +2253,15 @@ async function restartServer(epId) {
 const appState = {
   cfg: null,
   child: null, // the dsh web child process of the DISPLAYED endpoint (if we spawned it)
-  url: null, // URL currently loaded in the webView
-  displayEndpoint: null, // endpoint id currently loaded in the webView
+  url: null, // URL currently loaded in the active endpoint view
+  displayEndpoint: null, // endpoint id currently displayed
   activeEndpoint: 'local', // endpoint selected in the Pure page's DSH Web tab bar
   currentPage: 'pure', // 'pure' (桌面端配置) or an endpoint id — the title bar
   view: 'web',
   layout: 'full',
   childAlive: false,
-  endpoints: [] // [{id, kind: 'local'|'wsl'|'custom', name, url, child, childAlive, status, detail, wsl?}]
+  endpoints: [], // [{id, kind, name, url, child, childAlive, status, detail, wsl?}]
+  views: {} // epId → WebContentsView (each endpoint has its own view; session preserved)
 };
 let quitting = false;
 // True while a restart is in flight: the child's intentional kill must NOT
@@ -2377,6 +2345,11 @@ app.on('before-quit', () => {
   for (const ep of appState.endpoints) {
     if (ep.child !== null) killChild(ep.child);
   }
+  // Destroy all endpoint views.
+  for (const v of Object.values(appState.views)) {
+    if (!v.webContents.isDestroyed()) v.webContents.close();
+  }
+  appState.views = {};
 });
 
 app.on('window-all-closed', () => {
