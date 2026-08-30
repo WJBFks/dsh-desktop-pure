@@ -69,6 +69,11 @@
       }
     }
 
+    /* Author display rules (e.g. .btn) would otherwise override the UA
+       [hidden] default — make hidden win everywhere in this page. */
+    [hidden] {
+      display: none !important;
+    }
     html,
     body {
       margin: 0;
