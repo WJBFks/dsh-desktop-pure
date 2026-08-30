@@ -850,7 +850,7 @@
           <div class="pane-body" data-section="web" hidden>
             <!-- Endpoint tab bar: 本机 / WSL / 自定义远程 + ＋添加 -->
             <div class="ep-tabs" id="epTabs"></div>
-            <!-- Inline form to add a remote dsh web address -->
+            <!-- Inline form shown when the 「添加」 tab is selected -->
             <div class="ep-form" id="epForm" hidden>
               <input class="ep-name" id="epFormName" type="text" placeholder="名称（如：家里服务器）" maxlength="40" />
               <input class="ep-url" id="epFormUrl" type="text" placeholder="http://192.168.x.x:3080" />
@@ -858,6 +858,8 @@
               <button class="btn btn-ghost" id="epFormCancel" type="button">取消</button>
               <div class="ep-form-err" id="epFormErr" hidden></div>
             </div>
+            <!-- Detail rows for the selected endpoint -->
+            <div id="epDetailRows">
             <div class="row">
               <div class="row-text">
                 <div class="row-title">连接状态</div>
@@ -886,13 +888,14 @@
               </div>
               <div class="val val-wide" id="valDsh">—</div>
             </div>
-            <div class="row row-actions">
+            <div class="row row-actions" id="epActions">
               <div class="btn-group">
                 <button class="btn btn-primary" id="btnOpenWeb" type="button">打开 DSH Web</button>
                 <button class="btn btn-secondary" id="btnOpenBrowser" type="button" disabled>在浏览器中打开</button>
                 <button class="btn btn-ghost" id="btnRestart" type="button">重启 dsh 服务器</button>
                 <button class="btn btn-ghost" id="btnRemoveEp" type="button" hidden>删除此地址</button>
               </div>
+            </div>
             </div>
           </div>
           <div class="pane-body" data-section="changelog" hidden>
@@ -963,6 +966,8 @@
       var btnRestart = $('btnRestart');
       var btnRemoveEp = $('btnRemoveEp');
       var epTabs = $('epTabs');
+      var epDetailRows = $('epDetailRows');
+      var epActions = $('epActions');
       var epForm = $('epForm');
       var epFormName = $('epFormName');
       var epFormUrl = $('epFormUrl');
@@ -980,7 +985,11 @@
 
       var lastInfo = null;
       var eps = []; // latest endpoint snapshot from the shell
-      var activeEp = 'local'; // endpoint selected in the tab bar
+      // Tab currently selected on THIS page: an endpoint id, or '__add__' for
+      // the 添加 tab. Normally mirrors info.activeEndpoint; main is
+      // authoritative (each push resyncs), except while the 添加 tab is open.
+      var selectedTab = 'local';
+      var pendingAdd = false; // a successful add is in flight; main will switch
       var lastTabsHtml = '';
 
       function platformName(p) {
@@ -1016,31 +1025,37 @@
 
       function activeEpObj() {
         for (var i = 0; i < eps.length; i++) {
-          if (eps[i].id === activeEp) return eps[i];
+          if (eps[i].id === selectedTab) return eps[i];
         }
         return null;
       }
 
-      // Endpoint tab bar (本机 / WSL / custom + ＋添加). Diffed by HTML so the
-      // 5 s status push doesn't needlessly rebuild the buttons.
+      // Endpoint tab bar (本机 / WSL / custom + an 「添加」 tab). Diffed by
+      // HTML so the 5 s status push doesn't needlessly rebuild the buttons.
       function renderEndpoints() {
         if (!epTabs) return;
         var html = eps.map(function (e) {
           return (
-            '<button class="ep-tab' + (e.id === activeEp ? ' active' : '') + '" data-ep="' +
+            '<button class="ep-tab' + (e.id === selectedTab ? ' active' : '') + '" data-ep="' +
             esc(e.id) + '" type="button"><span class="ep-dot ' + esc(e.status || 'unknown') +
             '"></span><span>' + esc(e.name) + '</span></button>'
           );
         }).join('');
-        html += '<button class="ep-tab ep-add" id="epAddBtn" type="button"><span>＋ 添加</span></button>';
+        html +=
+          '<button class="ep-tab ep-add' + (selectedTab === '__add__' ? ' active' : '') +
+          '" id="epAddBtn" type="button"><span>＋ 添加</span></button>';
         if (html === lastTabsHtml) return;
         lastTabsHtml = html;
         epTabs.innerHTML = html;
       }
 
-      // Detail rows + action buttons for the SELECTED endpoint (the whole
-      // section tracks info.activeEndpoint, pushed by the shell).
+      // Detail rows + action buttons for the SELECTED tab: either an endpoint
+      // (status / address / port / actions) or the 添加 form.
       function applyEndpointDetail() {
+        var addMode = selectedTab === '__add__';
+        if (epForm) epForm.hidden = !addMode;
+        if (epDetailRows) epDetailRows.hidden = addMode;
+        if (addMode) return;
         var ep = activeEpObj();
         var st = ep ? ep.status : 'unknown';
         if (st === 'online') {
@@ -1091,7 +1106,11 @@
           else if (ep.kind === 'wsl') valDsh.textContent = 'wsl → ' + (ep.wslDsh || 'dsh');
           else valDsh.textContent = '远程地址（本端不启动）';
         }
-        // Actions
+        // Actions: hidden while the endpoint cannot succeed (error, e.g. WSL
+        // without dsh installed, or starting) — the row above explains why.
+        // unknown / offline keep 「打开 DSH Web」 as the spawn / retry entry.
+        var showActions = st === 'online' || st === 'unknown' || st === 'offline';
+        if (epActions) epActions.hidden = !showActions;
         if (btnRestart) btnRestart.hidden = !ep || ep.kind === 'custom';
         if (btnRemoveEp) btnRemoveEp.hidden = !ep || ep.kind !== 'custom';
         if (btnOpenBrowser) btnOpenBrowser.disabled = !(ep && ep.url);
@@ -1134,9 +1153,16 @@
         valEngine.textContent =
           'Electron ' + (v.electron || '—') + ' · Chromium ' + (v.chrome || '—') + ' · Node ' + (v.node || '—');
         valPlatform.textContent = platformName(info.platform);
-        // DSH Web endpoint state (tab bar + detail rows)
+        // DSH Web endpoint state (tab bar + detail rows). Main is
+        // authoritative for the selected endpoint — but while the 添加 tab is
+        // open we keep it (until a successful add makes main switch over).
         eps = Array.isArray(info.endpoints) ? info.endpoints : [];
-        activeEp = info.activeEndpoint || 'local';
+        if (pendingAdd && info.activeEndpoint) {
+          selectedTab = info.activeEndpoint;
+          pendingAdd = false;
+        } else if (selectedTab !== '__add__') {
+          selectedTab = info.activeEndpoint || 'local';
+        }
         renderEndpoints();
         applyEndpointDetail();
         renderChangelog(info.changelog);
@@ -1171,19 +1197,28 @@
             api.setTheme(c.getAttribute('data-theme'));
           });
         });
-        // Endpoint tab bar: select, or open the "add remote" form.
+        // Endpoint tab bar: select an endpoint, or the 添加 tab (form view).
         if (epTabs) {
           epTabs.addEventListener('click', function (ev) {
             var t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
             if (!t) return;
             if (t.id === 'epAddBtn') {
-              epForm.hidden = !epForm.hidden;
-              epFormErr.hidden = true;
-              if (!epForm.hidden) epFormName.focus();
+              if (selectedTab !== '__add__') {
+                selectedTab = '__add__';
+                epFormErr.hidden = true;
+                renderEndpoints();
+                applyEndpointDetail();
+              }
+              epFormName.focus();
               return;
             }
             var id = t.getAttribute('data-ep');
-            if (id && id !== activeEp) api.selectEndpoint(id);
+            if (id) {
+              selectedTab = id;
+              renderEndpoints();
+              applyEndpointDetail();
+              api.selectEndpoint(id); // sync main (authoritative, idempotent)
+            }
           });
         }
         if (epFormAdd) {
@@ -1194,7 +1229,9 @@
             Promise.resolve(api.addEndpoint(name, url))
               .then(function (res) {
                 if (res && res.ok) {
-                  epForm.hidden = true;
+                  // Main switches activeEndpoint to the new endpoint; the next
+                  // push brings us out of the 添加 tab automatically.
+                  pendingAdd = true;
                   epFormName.value = '';
                   epFormUrl.value = '';
                 } else {
@@ -1210,8 +1247,10 @@
         }
         if (epFormCancel) {
           epFormCancel.addEventListener('click', function () {
-            epForm.hidden = true;
-            epFormErr.hidden = true;
+            // Back to the endpoint main currently has selected.
+            selectedTab = lastInfo && lastInfo.activeEndpoint ? lastInfo.activeEndpoint : 'local';
+            renderEndpoints();
+            applyEndpointDetail();
           });
         }
         btnOpenWeb.addEventListener('click', function () {

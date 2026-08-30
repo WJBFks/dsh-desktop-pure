@@ -543,6 +543,17 @@ async function tickEndpoints() {
         ep.status = 'online';
         continue;
       }
+      // WSL endpoint in an error state (e.g. dsh not installed): re-detect
+      // periodically so the endpoint recovers on its own once dsh is installed.
+      if (
+        ep.kind === 'wsl' &&
+        ep.status === 'error' &&
+        Date.now() - (ep._wslRetryAt || 0) > 30_000
+      ) {
+        ep._wslRetryAt = Date.now();
+        detectWslEndpoint().catch(() => {});
+        continue;
+      }
       if (ep.url === null) continue;
       const st = await probeWithGrace(ep.url);
       if (st === 'harness') ep.status = 'online';
