@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * DSH Desktop Pure — thin Electron shell for the DeepSeek Harness Web GUI.
@@ -2354,11 +2354,10 @@ function bindChildExit(child, ep) {
 }
 
 async function main() {
-  // The window appears immediately. The default view is DSH Web (per the user's
-  // preference); if the server cannot be reached we fall back to the
-  // independent DSH Desktop Pure page instead of exiting the app.
+  // The window appears immediately. Default to the Windows (local) endpoint
+  // so the user lands on their primary dsh web on launch.
   createWindow();
-  await enterWebView();
+  await connectEndpoint('local');
 }
 
 if (!app.requestSingleInstanceLock()) {
