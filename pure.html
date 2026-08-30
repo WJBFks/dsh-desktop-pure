@@ -558,10 +558,15 @@
     .ep-form .row {
       padding: 10px 0;
     }
-    /* Title rows (名称 / 地址): no bottom divider, tighter bottom padding */
+    /* Title rows: no bottom divider, tighter bottom padding */
     .ep-form .row.add {
       border-bottom: none;
       padding-bottom: 4px;
+    }
+    /* Extra (non-uniform) settings, e.g. 启动命令 / WSL 内 dsh 路径:
+       accent title with a * marker, to set them apart from the common rows */
+    .ep-form .row.add.extra .row-title {
+      color: var(--accent);
     }
     .ep-form input:focus {
       border-color: var(--accent);
@@ -863,24 +868,6 @@
                 <div class="row">
                   <input id="epFormName" type="text" placeholder="如：家里服务器" maxlength="40" />
                 </div>
-                <div class="row add" id="rowPort" hidden>
-                  <div class="row-text">
-                    <div class="row-title">端口</div>
-                    <div class="row-desc">dsh web 监听的端口</div>
-                  </div>
-                </div>
-                <div class="row" id="rowPortInput" hidden>
-                  <input id="epFormPort" type="number" min="0" max="65535" placeholder="3080" />
-                </div>
-                <div class="row add" id="rowDsh" hidden>
-                  <div class="row-text">
-                    <div class="row-title" id="epFormDshTitle">启动命令</div>
-                    <div class="row-desc" id="epFormDshDesc">用于启动 dsh web 的可执行文件</div>
-                  </div>
-                </div>
-                <div class="row" id="rowDshInput" hidden>
-                  <input id="epFormDsh" type="text" placeholder="dsh" />
-                </div>
                 <div class="row add" id="rowUrl">
                   <div class="row-text">
                     <div class="row-title">地址</div>
@@ -889,6 +876,25 @@
                 </div>
                 <div class="row" id="rowUrlInput">
                   <input id="epFormUrl" type="text" placeholder="192.168.1.10:3080 或 http://192.168.1.10:3080" />
+                </div>
+                <div class="row add" id="rowPort">
+                  <div class="row-text">
+                    <div class="row-title">端口</div>
+                    <div class="row-desc">dsh web 监听的端口</div>
+                  </div>
+                </div>
+                <div class="row" id="rowPortInput">
+                  <input id="epFormPort" type="number" min="0" max="65535" placeholder="3080" />
+                </div>
+                <!-- Extra settings (local / WSL only): last, accent + * -->
+                <div class="row add extra" id="rowDsh" hidden>
+                  <div class="row-text">
+                    <div class="row-title" id="epFormDshTitle">启动命令 *</div>
+                    <div class="row-desc" id="epFormDshDesc">用于启动 dsh web 的可执行文件</div>
+                  </div>
+                </div>
+                <div class="row" id="rowDshInput" hidden>
+                  <input id="epFormDsh" type="text" placeholder="dsh" />
                 </div>
                 <div class="row row-actions">
                   <div class="btn-group">
@@ -1098,33 +1104,31 @@
         return { mode: 'detail', ep: null };
       }
 
-      // Configure the form's visible rows / wording for its current mode
-      // (add: 名称+地址; edit local: 名称+端口+启动命令; edit WSL: 名称+端口+
-      // WSL内dsh路径; edit custom: 名称+地址).
+      // Configure the form for its current mode. Unified row order:
+      // 名称 → 地址 → 端口; local / WSL end with an extra * setting
+      // (启动命令 / WSL 内 dsh 路径). 添加 shows only 名称 + 地址.
       function renderFormMode() {
         var fs = formState();
         if (fs.mode === 'detail') return;
         var isAdd = fs.mode === 'add';
         var kind = isAdd ? 'custom' : fs.ep.kind;
-        var showUrl = true; // every endpoint can set/override its address
-        var showPort = !isAdd && kind !== 'custom';
         epFormNameDesc.textContent = isAdd ? '这个远程 DSH 的显示名' : '端点的显示名';
         epFormName.placeholder = isAdd ? '如：家里服务器' : '如：Windows / WSL';
-        rowPort.hidden = !showPort;
-        rowPortInput.hidden = !showPort;
-        rowDsh.hidden = !showPort;
-        rowDshInput.hidden = !showPort;
-        if (showPort && kind === 'wsl') {
-          epFormDshTitle.textContent = 'WSL 内 dsh 路径';
+        rowUrl.hidden = false;
+        rowUrlInput.hidden = false;
+        rowPort.hidden = isAdd;
+        rowPortInput.hidden = isAdd;
+        rowDsh.hidden = isAdd;
+        rowDshInput.hidden = isAdd;
+        if (!isAdd && kind === 'wsl') {
+          epFormDshTitle.textContent = 'WSL 内 dsh 路径 *';
           epFormDshDesc.textContent = '留空 = 自动检测（npm 全局位置）';
           epFormDsh.placeholder = fs.ep.wslDsh ? ('检测值：' + fs.ep.wslDsh) : '留空自动检测';
-        } else if (showPort) {
-          epFormDshTitle.textContent = '启动命令';
+        } else if (!isAdd) {
+          epFormDshTitle.textContent = '启动命令 *';
           epFormDshDesc.textContent = '用于启动 dsh web 的可执行文件';
           epFormDsh.placeholder = 'dsh';
         }
-        rowUrl.hidden = !showUrl;
-        rowUrlInput.hidden = !showUrl;
         if (isAdd) {
           epFormUrlDesc.textContent = '远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）';
           epFormUrl.placeholder = '192.168.1.10:3080 或 http://192.168.1.10:3080';
