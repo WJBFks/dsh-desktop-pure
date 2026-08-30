@@ -1269,33 +1269,42 @@ async function connectEndpoint(id) {
     ep.wasOnline = true;
     ep.detail = '';
     if (child !== null) bindChildExit(child, ep);
-    const renav = url !== appState.url; // entered on a different/blank page?
-    appState.url = url;
-    appState.child = child;
-    appState.childAlive = child !== null;
-    appState.displayEndpoint = ep.id;
-    if (renav) loadWeb(url, { fade: true });
-    setStatus({});
+    // The user may have switched away while this was running (e.g. test →
+    // Windows): then the result only updates the endpoint's STATE (dot /
+    // detail) — it must NOT take over the view.
+    const current = appState.currentPage === ep.id;
+    if (current) {
+      const renav = url !== appState.url; // entered on a different/blank page?
+      appState.url = url;
+      appState.child = child;
+      appState.childAlive = child !== null;
+      appState.displayEndpoint = ep.id;
+      if (renav) loadWeb(url, { fade: true });
+      setStatus({});
+    }
     if (cfg.verbose) {
       console.log(
         `[DSH Desktop Pure] web view -> ${url} (${ep.name}${child === null ? ', reused' : ', spawned'})`
       );
     }
   } catch (err) {
-    // 加载失败组件: blank page + red dot; the reason is on the title bar
-    // and in the endpoint detail. Retry via 「打开 DSH Web」.
+    // 加载失败组件 (blank page + red dot) — but ONLY when the user is still
+    // on this page; a stale failure must never yank the view away.
     ep.status = 'error';
     ep.detail = err.message;
-    appState.url = null;
-    appState.child = null;
-    appState.childAlive = false;
-    appState.displayEndpoint = ep.id;
-    layout();
-    loadWeb('about:blank');
-    setStatus({ reason: `无法连接「${ep.name}」：${err.message}` });
+    if (appState.currentPage === ep.id) {
+      appState.url = null;
+      appState.child = null;
+      appState.childAlive = false;
+      appState.displayEndpoint = ep.id;
+      layout();
+      loadWeb('about:blank');
+      setStatus({ reason: `无法连接「${ep.name}」：${err.message}` });
+    }
     return;
   } finally {
     pushPureInfo();
+    setStatus({}); // re-broadcast the CURRENT page's state (may have changed)
   }
   refreshDshMenu();
 }
