@@ -40,12 +40,18 @@
     }
     #menu {
       width: 100%;
-      height: 100%;
+      /* 28px taller than the view: 12px above (negative margin keeps the
+         items aligned) + 16px below — room for the drop shadow. */
+      height: calc(100% + 28px);
+      margin-top: -12px;
       box-sizing: border-box;
       background: var(--menu-bg);
-      /* Top/bottom padding must equal MENU_PAD_V in main.js; item heights must
-         equal MENU_ITEM_H / MENU_SEP_H so the view bounds match the content. */
-      padding: 8px 0;
+      /* Padding-top must equal MENU_PAD_V in main.js (the 12px negative
+         margin keeps the first item 8px below the view top, as before);
+         item heights must equal MENU_ITEM_H / MENU_SEP_H. */
+      padding: 20px 0 16px;
+      border-radius: 10px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
       display: flex;
       flex-direction: column;
       overflow: hidden;

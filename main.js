@@ -62,7 +62,9 @@ const TITLEBAR_HEIGHT = 40;
 const MENU_WIDTH = 224;
 const MENU_ITEM_H = 30;
 const MENU_SEP_H = 9;
-const MENU_PAD_V = 8;
+// Must match menu.html #menu's padding-top (12px of which is a negative
+// margin that keeps the first item visually 8px below the view top).
+const MENU_PAD_V = 20;
 const LIGHT_BG = '#f3f4f6';
 const DARK_BG = '#111827';
 const LAYOUT = ['full', 'card']; // Pure page: full-window vs centered-card
