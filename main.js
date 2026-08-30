@@ -672,18 +672,19 @@ async function tickEndpoints() {
       if (st === 'harness') {
         ep.status = 'online';
         ep.wasOnline = true;
-      } else if (st === 'free') {
-        ep.status = 'offline';
+      } else {
+        // 红（offline）仅用于"曾经连上过、现在没了"；从未连上过（含尝试过
+        // 但失败）一律保持灰（unknown）。
+        if (ep.wasOnline) ep.status = 'offline';
+        else ep.status = 'unknown';
         // The server we connected to went away: clear the displayed URL.
-        if (appState.displayEndpoint === ep.id && appState.url === ep.url) {
+        if (st === 'free' && appState.displayEndpoint === ep.id && appState.url === ep.url) {
           appState.url = null;
           appState.child = null;
           ep.url = ep.kind === 'custom' ? ep.url : null; // custom keeps its address
           if (ep.kind !== 'custom') appState.displayEndpoint = null;
           enterPureView(`${ep.name} 的 dsh web 已离线`);
         }
-      } else {
-        ep.status = 'offline';
       }
     }
     pushPureInfo();
@@ -1998,18 +1999,17 @@ async function probeEndpointOnce(ep) {
     ep.status = 'online';
     ep.wasOnline = true;
     ep.detail = '';
-  } else if (st === 'free') {
-    ep.status = 'offline';
-    ep.detail =
-      ep.kind === 'custom'
-        ? '远端 dsh web 未运行'
-        : 'dsh web 未运行（本端不会自动启动）';
   } else {
-    ep.status = 'offline';
+    // 红（offline）仅用于"曾经连上过、现在没了"；从未连上过保持灰。
+    ep.status = ep.wasOnline ? 'offline' : 'unknown';
     ep.detail =
-      ep.kind === 'custom'
-        ? '地址可达，但不是 dsh web（远端需以 --trusted-host 声明本端主机）'
-        : '该地址已被其他服务占用';
+      st === 'free'
+        ? ep.kind === 'custom'
+          ? '远端 dsh web 未运行'
+          : 'dsh web 未运行（本端不会自动启动）'
+        : ep.kind === 'custom'
+          ? '地址可达，但不是 dsh web（远端需以 --trusted-host 声明本端主机）'
+          : '该地址已被其他服务占用';
   }
   pushPureInfo();
   setStatus({});
