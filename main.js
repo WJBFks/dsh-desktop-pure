@@ -627,6 +627,7 @@ async function detectWslEndpoint() {
     ep.detail = 'WSL 检测失败';
   }
   pushPureInfo();
+  setStatus({});
 }
 
 /** Keep endpoint status dots fresh (5 s cadence; cheap probes only). */
@@ -678,6 +679,7 @@ async function tickEndpoints() {
       }
     }
     pushPureInfo();
+    setStatus({}); // endpoint state changed → the title bar (current page) updates
   } finally {
     ticking = false;
   }
@@ -831,11 +833,29 @@ let currentStatus = { state: 'starting', view: 'web' };
 let openMenu = null; // 'file' | 'view' | 'server' | null
 let currentMenuLeft = 0; // content-relative x of the open menu's button
 
-/** Push a status to the title bar renderer. */
-function setStatus(next) {
-  // Every status carries the current view so the title bar can tell "on the
-  // Pure page" apart from "on the dsh web page".
-  currentStatus = Object.assign({ view: appState.view }, next);
+/**
+ * Status of the CURRENT PAGE (the title bar always reflects it). Every page
+ * has its own state: 桌面端配置 is the shell's own page (always "ready");
+ * an endpoint page mirrors that endpoint's connection state.
+ */
+function pageStatus() {
+  if (appState.currentPage === 'pure' || appState.currentPage === null) {
+    return { state: 'pure', pageName: '桌面端配置' };
+  }
+  const ep = getEndpoint(appState.currentPage);
+  if (ep === null) return { state: 'unknown', reason: '页面不存在' };
+  if (ep.status === 'online' || ep.childAlive) {
+    return { state: 'online', url: ep.url || appState.url, spawned: ep.childAlive, pageName: ep.name };
+  }
+  if (ep.status === 'starting') return { state: 'starting', pageName: ep.name };
+  if (ep.status === 'error') return { state: 'offline', reason: ep.detail || '连接出错', pageName: ep.name };
+  if (ep.status === 'offline') return { state: 'offline', reason: ep.detail || '未连接', pageName: ep.name };
+  return { state: 'unknown', reason: '未启动', pageName: ep.name };
+}
+
+/** Re-broadcast the current page's status to the title bar. */
+function setStatus(extra) {
+  currentStatus = Object.assign(pageStatus(), extra || {}, { view: appState.view });
   if (titlebarView !== null && !titlebarView.webContents.isDestroyed()) {
     titlebarView.webContents.send('dsh:status', currentStatus);
   }
@@ -1070,18 +1090,18 @@ function hideLoading() {
 /** Show the dsh web view without re-navigating (preserves its session). */
 function showWebOnly() {
   appState.view = 'web';
+  if (appState.url !== null) appState.currentPage = appState.displayEndpoint || 'pure';
   layout();
-  if (appState.url !== null) {
-    setStatus({ state: 'online', url: appState.url, port: appState.cfg.port, spawned: appState.childAlive });
-  }
+  setStatus({});
   refreshDshMenu();
 }
 
 /** Show the shell's own DSH Desktop Pure page (independent of dsh web). */
 function enterPureView(reason) {
   appState.view = 'pure';
+  appState.currentPage = 'pure';
   layout();
-  setStatus({ state: 'pure', reason });
+  setStatus({ reason });
   refreshDshMenu();
 }
 
@@ -1111,10 +1131,11 @@ async function connectEndpoint(id) {
   }
 
   showLoading();
-  setStatus({ state: 'starting', port: cfg.port });
+  appState.currentPage = ep.id;
   ep.status = 'starting';
   ep.detail = '';
   pushPureInfo();
+  setStatus({});
   try {
     let url;
     let child = null;
@@ -1150,10 +1171,11 @@ async function connectEndpoint(id) {
     appState.childAlive = child !== null;
     appState.displayEndpoint = ep.id;
     appState.view = 'web';
+    appState.currentPage = ep.id;
     layout();
     hideLoading();
     loadWeb(url);
-    setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
+    setStatus({});
     if (cfg.verbose) {
       console.log(
         `[DSH Desktop Pure] web view -> ${url} (${ep.name}${child === null ? ', reused' : ', spawned'})`
@@ -1168,12 +1190,13 @@ async function connectEndpoint(id) {
     hideLoading();
     appState.view = 'web';
     appState.displayEndpoint = ep.id;
+    appState.currentPage = ep.id;
     appState.url = null;
     appState.child = null;
     appState.childAlive = false;
     layout();
     loadWeb('about:blank');
-    setStatus({ state: 'offline', reason: `无法连接「${ep.name}」：${err.message}` });
+    setStatus({ reason: `无法连接「${ep.name}」：${err.message}` });
     return;
   } finally {
     pushPureInfo();
@@ -1960,6 +1983,7 @@ async function probeEndpointOnce(ep) {
         : '该地址已被其他服务占用';
   }
   pushPureInfo();
+  setStatus({});
 }
 
 ipcMain.on('pure:probe-endpoint', (_event, id) => {
@@ -2010,13 +2034,14 @@ async function restartServer(epId) {
     ep.kind === 'wsl' && ep.wsl && ep.wsl.ip
       ? `http://${ep.wsl.ip}:${port}`
       : `http://127.0.0.1:${port}`;
-  setStatus({ state: 'starting', port });
+  appState.currentPage = ep.id;
   // Show the theme-aware loading page so the harness area doesn't flash a
   // Chromium "can't reach this page" error while the old server is killed.
   showLoading();
   ep.status = 'starting';
   ep.detail = '';
   pushPureInfo();
+  setStatus({});
   try {
     // 1. Kill the shell-owned child, if any (its exit is ignored: restarting).
     if (ep.child !== null) {
@@ -2075,23 +2100,32 @@ async function restartServer(epId) {
     appState.childAlive = child !== null;
     appState.displayEndpoint = ep.id;
     appState.view = 'web';
+    appState.currentPage = ep.id;
     hideLoading();
     loadWeb(url);
     layout();
-    setStatus({ state: 'online', url, port: cfg.port, spawned: child !== null });
+    setStatus({});
     refreshDshMenu();
   } catch (err) {
-    // Degrade to the independent Pure page (non-blocking): the user can retry
-    // from the title bar or the Pure page — never quit the app.
+    // Degrade to the blank web view for that endpoint (non-blocking): the user
+    // can retry from the title bar or the Pure page — never quit the app.
     ep.status = 'error';
     ep.detail = err.message;
-    if (appState.displayEndpoint === ep.id || appState.activeEndpoint === ep.id) {
-      enterPureView(`重启「${ep.name}」失败：${err.message}`);
-    }
+    appState.view = 'web';
+    appState.displayEndpoint = ep.id;
+    appState.currentPage = ep.id;
+    appState.url = null;
+    appState.child = null;
+    appState.childAlive = false;
+    hideLoading();
+    loadWeb('about:blank');
+    layout();
+    setStatus({ reason: `重启「${ep.name}」失败：${err.message}` });
   } finally {
     restarting = false;
     hideLoading();
     pushPureInfo();
+    setStatus({});
   }
 }
 
@@ -2105,6 +2139,7 @@ const appState = {
   url: null, // URL currently loaded in the webView
   displayEndpoint: null, // endpoint id currently loaded in the webView
   activeEndpoint: 'local', // endpoint selected in the Pure page's DSH Web tab bar
+  currentPage: 'pure', // 'pure' (桌面端配置) or an endpoint id — the title bar
   view: 'web',
   layout: 'full',
   childAlive: false,
@@ -2210,7 +2245,7 @@ app.on('activate', () => {
     w.focus();
   } else if (appState.url !== null) {
     createWindow();
+    appState.currentPage = appState.displayEndpoint || 'pure';
     showWebOnly();
-    setStatus({ state: appState.childAlive ? 'online' : 'offline', url: appState.url });
   }
 });

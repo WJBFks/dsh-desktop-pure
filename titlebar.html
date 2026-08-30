@@ -131,6 +131,10 @@
       background: #4176e6;
       box-shadow: 0 0 6px rgba(65, 118, 230, 0.7);
     }
+    #dot.unknown {
+      background: #9ca3af;
+      box-shadow: 0 0 6px rgba(156, 163, 175, 0.5);
+    }
     #label {
       white-space: nowrap;
       overflow: hidden;
@@ -237,18 +241,22 @@
       function apply(status) {
         if (!status || typeof status !== 'object') return;
         var state = status.state || 'offline';
+        var page = status.pageName || '';
+        var prefix = page ? page + ' · ' : '';
         dot.className = state;
         if (state === 'pure') {
-          // On the shell's own independent DSH Desktop Pure page.
-          label.textContent = 'DSH Desktop Pure' + (status.reason ? ' · ' + status.reason : '');
+          // On the shell's own independent 桌面端配置 page.
+          label.textContent = '桌面端配置' + (status.reason ? ' · ' + status.reason : '');
         } else if (state === 'online') {
           // Reused (not spawned by the shell) → append a marker at the end.
           var reused = status.spawned === false ? '（已复用）' : '';
-          label.textContent = '已连接' + (status.url ? ' · ' + status.url : '') + reused;
+          label.textContent = prefix + '已连接' + (status.url ? ' · ' + status.url : '') + reused;
         } else if (state === 'starting') {
-          label.textContent = '正在连接 DSH Web…';
+          label.textContent = prefix + '正在连接…';
+        } else if (state === 'unknown') {
+          label.textContent = prefix + (status.reason || '未启动');
         } else {
-          label.textContent = '已断开' + (status.reason ? '（' + status.reason + '）' : '');
+          label.textContent = prefix + '已断开' + (status.reason ? '（' + status.reason + '）' : '');
         }
       }
 
