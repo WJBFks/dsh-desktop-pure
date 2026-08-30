@@ -282,7 +282,16 @@ async function spawnOnPort(cfg, port, dshBin) {
  * Reuse detection is STRICT (needs a DSH structural marker) so a foreign HTTP
  * server is never mistaken for the harness.
  */
-async function resolveServerFor(cfg, port, dshBin) {
+async function resolveServerFor(cfg, ep) {
+  const port = ep.port != null ? ep.port : cfg.port;
+  const dshBin = ep.dshBin || cfg.dshBin;
+  // An explicit endpoint URL (via 编辑): reuse it when it answers, else fall
+  // through to the port-based spawn below.
+  if (ep.urlOverride) {
+    if ((await probeWithGrace(ep.urlOverride)) === 'harness') {
+      return { url: ep.urlOverride, child: null };
+    }
+  }
   // OS-assigned port: the URL only appears in dsh stdout; probe it directly.
   if (port === 0) return spawnOnPort(cfg, 0, dshBin);
   const url = `http://127.0.0.1:${port}`;
@@ -363,12 +372,14 @@ function persistEndpoints() {
       if (ep.name !== defaultLocalName()) o.name = ep.name;
       if (ep.port !== defPort) o.port = ep.port;
       if (ep.dshBin !== (cfg.dshBin || 'dsh')) o.dshBin = ep.dshBin;
+      if (ep.urlOverride) o.url = ep.urlOverride;
       if (Object.keys(o).length) obj.local = o;
     } else if (ep.kind === 'wsl') {
       const o = {};
       if (ep.name !== 'WSL') o.name = ep.name;
       if (ep.port !== defPort) o.port = ep.port;
       if (ep.dshOverride) o.dsh = ep.dshOverride;
+      if (ep.urlOverride) o.url = ep.urlOverride;
       if (Object.keys(o).length) obj.wsl = o;
     } else if (ep.kind === 'custom') {
       obj.custom.push({ name: ep.name, url: ep.url });
@@ -393,6 +404,7 @@ function makeLocalEndpoint() {
     name: defaultLocalName(),
     port: cfg.port != null ? cfg.port : DEFAULT_PORT,
     dshBin: cfg.dshBin || 'dsh',
+    urlOverride: null, // manual URL (via 编辑); null = derive from the port
     url: null,
     child: null,
     childAlive: false,
@@ -409,6 +421,7 @@ function makeWslEndpoint() {
     name: 'WSL',
     port: cfg.port != null ? cfg.port : DEFAULT_PORT,
     dshOverride: null, // manual WSL-side dsh path; null = auto-detect
+    urlOverride: null, // manual URL (via 编辑); null = derive from WSL IP + port
     url: null,
     child: null,
     childAlive: false,
@@ -431,6 +444,19 @@ function applySavedToEndpoint(ep, saved) {
   }
   if (ep.kind === 'wsl' && typeof saved.dsh === 'string' && saved.dsh.trim() !== '') {
     ep.dshOverride = saved.dsh.trim();
+  }
+  if (
+    (ep.kind === 'local' || ep.kind === 'wsl') &&
+    typeof saved.url === 'string' &&
+    saved.url.trim() !== ''
+  ) {
+    const u = normalizeEndpointUrl(saved.url);
+    try {
+      const p = new URL(u);
+      if (p.protocol === 'http:' || p.protocol === 'https:') ep.urlOverride = u;
+    } catch {
+      /* invalid saved URL → ignore */
+    }
   }
 }
 
@@ -545,13 +571,15 @@ async function resolveWslServer(cfg, ep) {
   if (!dsh) throw new Error('WSL 内未检测到 dsh。请先在 WSL 中执行：npm install -g @deepseek-ai/dsh，或在「编辑」中手动指定 dsh 路径');
   const port = ep.port != null ? ep.port : cfg.port;
   const ip = info.ip;
-  const url = `http://${ip}:${port}`;
-  const status = await probeWithGrace(url);
-  if (status === 'harness') return { url, child: null };
+  // An explicit endpoint URL (via 编辑) is probed first and reused when it
+  // answers; spawning still binds the WSL IP so the window can reach it.
+  const probeUrl = ep.urlOverride || `http://${ip}:${port}`;
+  const status = await probeWithGrace(probeUrl);
+  if (status === 'harness') return { url: probeUrl, child: null };
   if (status !== 'free') {
-    throw new Error(`WSL 内端口 ${port} 已被占用（请在 WSL 终端执行 lsof -i :${port} 查看）`);
+    throw new Error(`端口 ${port} 已被占用（请在 WSL 终端执行 lsof -i :${port} 查看）`);
   }
-  const fixedUrl = url;
+  const fixedUrl = `http://${ip}:${port}`;
   const child = spawnWslDsh(dsh, ip, port);
   let spawnError = null;
   child.on('error', (err) => {
@@ -1098,7 +1126,7 @@ async function connectEndpoint(id) {
         // Explicit --url=/DSH_DESKTOP_URL at launch: no spawn, load it directly.
         url = cfg.urlOverride;
       } else {
-        ({ url, child } = await resolveServerFor(cfg, ep.port, ep.dshBin));
+        ({ url, child } = await resolveServerFor(cfg, ep));
       }
     }
     ep.url = url;
@@ -1362,6 +1390,7 @@ function buildPureInfo() {
       port: e.port != null ? e.port : null,
       dsh: e.kind === 'local' ? e.dshBin : null,
       dshOverride: e.kind === 'wsl' ? e.dshOverride || null : null,
+      urlOverride: e.kind === 'local' || e.kind === 'wsl' ? e.urlOverride || null : null,
       wslIp: e.kind === 'wsl' && e.wsl ? e.wsl.ip : null,
       wslDsh: e.kind === 'wsl' && e.wsl ? e.wsl.dshBin : null
     })),
@@ -1742,9 +1771,10 @@ ipcMain.handle('pure:edit-endpoint', (_event, id, patch) => {
     ep.name = name;
     changed = true;
   }
-  if (ep.kind === 'custom') {
+  if (typeof patch.url === 'string' && patch.url.trim() !== '') {
     const u = normalizeEndpointUrl(patch.url);
-    if (typeof patch.url === 'string' && u !== '' && u !== (ep.url || '')) {
+    const current = ep.kind === 'custom' ? ep.url || '' : ep.urlOverride || '';
+    if (u !== current) {
       let parsed;
       try {
         parsed = new URL(u);
@@ -1754,10 +1784,17 @@ ipcMain.handle('pure:edit-endpoint', (_event, id, patch) => {
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return { ok: false, error: '仅支持 http / https 地址' };
       }
-      ep.url = u;
+      if (ep.kind === 'custom') ep.url = u;
+      else ep.urlOverride = u;
       changed = true;
     }
-  } else {
+  } else if (ep.kind === 'local' || ep.kind === 'wsl') {
+    if (ep.urlOverride !== null) {
+      ep.urlOverride = null; // empty address = back to auto-derivation
+      changed = true;
+    }
+  }
+  if (ep.kind !== 'custom') {
     const pRaw = typeof patch.port === 'string' ? patch.port.trim() : patch.port;
     if (pRaw !== '' && pRaw !== null && pRaw !== undefined) {
       const p = Number(pRaw);
@@ -1821,10 +1858,12 @@ ipcMain.on('pure:reset-endpoint', (_event, id) => {
     ep.name = defaultLocalName();
     ep.port = cfg.port != null ? cfg.port : DEFAULT_PORT;
     ep.dshBin = cfg.dshBin || 'dsh';
+    ep.urlOverride = null;
   } else {
     ep.name = 'WSL';
     ep.port = cfg.port != null ? cfg.port : DEFAULT_PORT;
     ep.dshOverride = null;
+    ep.urlOverride = null;
   }
   if (ep.child !== null) {
     killChild(ep.child);
@@ -1936,6 +1975,11 @@ async function restartServer(epId) {
       ({ url, child } = await resolveWslServer(cfg, ep));
     } else {
       ({ url, child } = await spawnOnPort(cfg, port, ep.dshBin));
+      if (ep.urlOverride) {
+        // A manual address was configured: the fresh spawn may not sit at it,
+        // so honor the configured URL when it answers (spawn was the intent).
+        if ((await probeWithGrace(ep.urlOverride)) === 'harness') url = ep.urlOverride;
+      }
     }
     ep.url = url;
     ep.child = child;

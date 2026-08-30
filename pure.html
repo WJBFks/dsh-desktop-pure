@@ -1106,7 +1106,7 @@
         if (fs.mode === 'detail') return;
         var isAdd = fs.mode === 'add';
         var kind = isAdd ? 'custom' : fs.ep.kind;
-        var showUrl = isAdd || kind === 'custom';
+        var showUrl = true; // every endpoint can set/override its address
         var showPort = !isAdd && kind !== 'custom';
         epFormNameDesc.textContent = isAdd ? '这个远程 DSH 的显示名' : '端点的显示名';
         epFormName.placeholder = isAdd ? '如：家里服务器' : '如：Windows / WSL';
@@ -1125,9 +1125,17 @@
         }
         rowUrl.hidden = !showUrl;
         rowUrlInput.hidden = !showUrl;
-        epFormUrlDesc.textContent = isAdd
-          ? '远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）'
-          : '远端 dsh web 的 URL，省略协议时默认 http';
+        if (isAdd) {
+          epFormUrlDesc.textContent = '远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）';
+          epFormUrl.placeholder = '192.168.1.10:3080 或 http://192.168.1.10:3080';
+        } else if (kind === 'custom') {
+          epFormUrlDesc.textContent = '远端 dsh web 的 URL，省略协议时默认 http';
+          epFormUrl.placeholder = '192.168.1.10:3080 或 http://192.168.1.10:3080';
+        } else {
+          epFormUrlDesc.textContent =
+            '留空 = 自动（本机 127.0.0.1 / WSL 发行版 IP + 端口）；填写后直接使用该地址连接';
+          epFormUrl.placeholder = '留空自动，如 http://127.0.0.1:3080';
+        }
         epFormSubmit.textContent = isAdd ? '添加' : '保存';
         epFormCancel.textContent = isAdd ? '取消' : '返回';
       }
@@ -1142,7 +1150,7 @@
 
       function fillFormForEdit(ep) {
         epFormName.value = ep.name || '';
-        epFormUrl.value = ep.url || '';
+        epFormUrl.value = ep.kind === 'custom' ? ep.url || '' : ep.urlOverride || '';
         epFormPort.value = ep.port != null ? String(ep.port) : '';
         epFormDsh.value = ep.kind === 'wsl' ? ep.dshOverride || '' : ep.dsh || '';
         epFormErr.hidden = true;
@@ -1380,8 +1388,14 @@
             var ep = null;
             for (var i = 0; i < eps.length; i++) if (eps[i].id === editingId) ep = eps[i];
             if (!ep) return;
-            var patch = { name: name, port: epFormPort.value.trim(), dsh: epFormDsh.value.trim() };
-            if (ep.kind === 'custom') patch.url = epFormUrl.value.trim();
+            // Every endpoint can carry an address (custom: its URL;
+            // local/WSL: a manual override, empty = auto-derive).
+            var patch = {
+              name: name,
+              port: epFormPort.value.trim(),
+              dsh: epFormDsh.value.trim(),
+              url: epFormUrl.value.trim()
+            };
             Promise.resolve(api.editEndpoint(ep.id, patch))
               .then(function (res) {
                 if (res && res.ok) {
