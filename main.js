@@ -1754,6 +1754,9 @@ const MENU_SHADOW = 6;
 function openMenuAt(name, relLeft) {
   if (win === null || menuView === null) return;
   if (!['dsh', 'file', 'view', 'server'].includes(name)) return;
+  // Ensure menuView is on top of all other views (z-order).
+  win.contentView.removeChildView(menuView);
+  win.contentView.addChildView(menuView);
   const items = menuItems()[name];
   const height = menuHeight(items);
   const [cw, ch] = win.getContentSize();
