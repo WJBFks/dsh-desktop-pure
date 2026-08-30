@@ -543,8 +543,7 @@
     }
     /* "Add remote DSH" form — same row shape as the endpoint detail rows */
     .ep-form input {
-      flex: 0 1 52%;
-      max-width: 52%;
+      width: 100%;
       height: 34px;
       padding: 0 10px;
       border: 1px solid var(--border-l2);
@@ -555,6 +554,9 @@
       font-size: 13px;
       outline: none;
       text-align: left;
+    }
+    .ep-form .row {
+      padding: 10px 0;
     }
     .ep-form input:focus {
       border-color: var(--accent);
@@ -852,14 +854,18 @@
                     <div class="row-title">名称</div>
                     <div class="row-desc">这个远程 DSH 的显示名</div>
                   </div>
+                </div>
+                <div class="row">
                   <input id="epFormName" type="text" placeholder="如：家里服务器" maxlength="40" />
                 </div>
                 <div class="row">
                   <div class="row-text">
                     <div class="row-title">地址</div>
-                    <div class="row-desc">远端 dsh web 的 URL（需在远端以 --trusted-host 声明本端主机）</div>
+                    <div class="row-desc">远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）</div>
                   </div>
-                  <input id="epFormUrl" type="text" placeholder="http://192.168.x.x:3080" />
+                </div>
+                <div class="row">
+                  <input id="epFormUrl" type="text" placeholder="192.168.1.10:3080 或 http://192.168.1.10:3080" />
                 </div>
                 <div class="row row-actions">
                   <div class="btn-group">

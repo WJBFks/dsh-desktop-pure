@@ -318,13 +318,13 @@ function loadCustomEndpoints() {
             typeof e.name === 'string' &&
             e.name.trim() !== '' &&
             typeof e.url === 'string' &&
-            /^https?:\/\//i.test(e.url)
+            /^https?:\/\//i.test(normalizeEndpointUrl(e.url))
         )
         .map((e) => ({
           id: 'ep-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
           kind: 'custom',
           name: e.name.trim().slice(0, 40),
-          url: e.url.trim(),
+          url: normalizeEndpointUrl(e.url),
           child: null,
           childAlive: false,
           status: 'unknown',
@@ -1615,15 +1615,22 @@ ipcMain.on('pure:select-endpoint', (_event, id) => {
 });
 
 /** Add a custom (remote) DSH endpoint from the Pure page. */
+/** Normalize a user-entered endpoint URL: default to http:// when the scheme is omitted. */
+function normalizeEndpointUrl(raw) {
+  let u = typeof raw === 'string' ? raw.trim().replace(/\/+$/, '') : '';
+  if (u !== '' && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(u)) u = 'http://' + u;
+  return u;
+}
+
 ipcMain.handle('pure:add-endpoint', (_event, name, url) => {
   const n = typeof name === 'string' ? name.trim().slice(0, 40) : '';
-  const u = typeof url === 'string' ? url.trim().replace(/\/+$/, '') : '';
+  const u = normalizeEndpointUrl(url);
   if (n === '') return { ok: false, error: '请填写名称' };
   let parsed;
   try {
     parsed = new URL(u);
   } catch {
-    return { ok: false, error: '地址格式不正确（需以 http:// 或 https:// 开头）' };
+    return { ok: false, error: '地址格式不正确（如：192.168.1.10:3080 或 http://host:port）' };
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return { ok: false, error: '仅支持 http / https 地址' };
