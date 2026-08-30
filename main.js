@@ -651,8 +651,17 @@ async function tickEndpoints() {
         detectWslEndpoint().catch(() => {});
         continue;
       }
-      if (ep.url === null) continue;
-      const st = await probeWithGrace(ep.url);
+      // Nothing connected yet: probe the address the CURRENT settings derive
+      // to, so the 页面 menu / tab dots show whether dsh web is already
+      // running (we only observe here — never spawn).
+      let target = ep.url;
+      if (target === null) {
+        if (ep.urlOverride) target = ep.urlOverride;
+        else if (ep.kind === 'custom') continue;
+        else if (ep.kind === 'wsl' && ep.wsl && ep.wsl.ip) target = `http://${ep.wsl.ip}:${ep.port}`;
+        else target = `http://127.0.0.1:${ep.port}`;
+      }
+      const st = await probeWithGrace(target);
       if (st === 'harness') ep.status = 'online';
       else if (st === 'free') {
         ep.status = 'offline';
@@ -1472,11 +1481,20 @@ function accText(acc) {
 function menuItems() {
   const src = nativeTheme.themeSource;
   return {
-    // DSH icon menu (left of 文件): switches the harness area between the
-    // shell's own Pure page and the dsh web page. Radio shows the active one.
+    // 页面 menu (left of 文件): a gray "DSH Web" heading followed by the
+    // endpoint list (status dot each; the displayed one highlighted), then
+    // the shell's own Pure page.
     dsh: [
-      { id: 'view-pure', label: '桌面端配置', type: 'radio', checked: appState.view === 'pure' },
-      { id: 'view-web', label: 'DSH Web', type: 'radio', checked: appState.view === 'web' }
+      { type: 'heading', label: 'DSH Web' },
+      ...appState.endpoints.map((ep) => ({
+        id: 'endpoint-' + ep.id,
+        label: ep.name,
+        type: 'status',
+        status: ep.status,
+        active: appState.view === 'web' && appState.displayEndpoint === ep.id
+      })),
+      { type: 'separator' },
+      { id: 'view-pure', label: '桌面端配置', type: 'radio', checked: appState.view === 'pure' }
     ],
     file: [
       { id: 'reload', label: '重新加载', accelerator: accText('CmdOrCtrl+R'), enabled: true },
@@ -1645,6 +1663,18 @@ ipcMain.on('menu:close', () => closeMenu());
 
 ipcMain.on('menu:action', (_event, id) => {
   closeMenu();
+  // Endpoint entries (页面 menu): STATUS ONLY — select the endpoint on the
+  // Pure page and probe it once. Never connect / spawn from here; starting
+  // dsh web happens exclusively via 「打开 DSH Web」 on the Pure page.
+  if (typeof id === 'string' && id.startsWith('endpoint-')) {
+    const ep = getEndpoint(id.slice('endpoint-'.length));
+    if (ep !== null) {
+      appState.activeEndpoint = ep.id;
+      if (appState.view !== 'pure') enterPureView();
+      probeEndpointOnce(ep).catch(() => {});
+    }
+    return;
+  }
   const action = menuActions[id];
   if (action) {
     try {
@@ -1916,7 +1946,7 @@ async function probeEndpointOnce(ep) {
     ep.detail =
       ep.kind === 'custom'
         ? '远端 dsh web 未运行'
-        : 'dsh web 未运行（点击「打开 DSH Web」自动启动）';
+        : 'dsh web 未运行（本端不会自动启动）';
   } else {
     ep.status = 'offline';
     ep.detail =

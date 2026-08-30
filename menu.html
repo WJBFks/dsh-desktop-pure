@@ -73,6 +73,42 @@
       text-align: center;
       color: var(--menu-radio);
       font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Gray group heading (e.g. "DSH Web" above the endpoint list) */
+    .dd-item.heading {
+      color: var(--menu-fg-dim);
+      font-size: 11px;
+      cursor: default;
+      padding-left: 0;
+    }
+    .dd-item.heading:hover {
+      background: transparent;
+    }
+    /* Currently-shown endpoint: persistent highlight */
+    .dd-item.active {
+      background: var(--menu-hover);
+      font-weight: 600;
+    }
+    /* Endpoint connection-status dot */
+    .dd-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      background: var(--menu-fg-dim);
+    }
+    .dd-dot.online {
+      background: #22c55e;
+    }
+    .dd-dot.starting {
+      background: #f59e0b;
+    }
+    .dd-dot.error,
+    .dd-dot.offline {
+      background: #f25a5a;
     }
     .dd-label {
       flex: 1 1 auto;
@@ -120,11 +156,19 @@
             return;
           }
           var row = document.createElement('div');
-          row.className = 'dd-item' + (it.enabled === false ? ' disabled' : '');
+          row.className = 'dd-item';
+          if (it.type === 'heading') row.className += ' heading';
+          if (it.enabled === false) row.className += ' disabled';
+          if (it.active) row.className += ' active';
 
           var prefix = document.createElement('span');
           prefix.className = 'dd-prefix';
-          if (it.type === 'radio') prefix.textContent = it.checked ? '●' : '';
+          if (it.type === 'radio' && it.checked) prefix.textContent = '●';
+          if (it.type === 'status') {
+            var dot = document.createElement('span');
+            dot.className = 'dd-dot ' + (it.status || 'unknown');
+            prefix.appendChild(dot);
+          }
           row.appendChild(prefix);
 
           var lab = document.createElement('span');
@@ -139,7 +183,7 @@
             row.appendChild(acc);
           }
 
-          if (it.enabled !== false && it.id) {
+          if (it.type !== 'heading' && it.enabled !== false && it.id) {
             row.addEventListener('click', function (e) {
               e.stopPropagation();
               if (api) api.action(it.id);
