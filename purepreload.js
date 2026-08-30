@@ -37,6 +37,14 @@ contextBridge.exposeInMainWorld('dshPure', {
   removeEndpoint(id) {
     ipcRenderer.send('pure:remove-endpoint', String(id));
   },
+  // Edit an endpoint (name / port / dsh / url) — awaitable { ok, error? }.
+  editEndpoint(id, patch) {
+    return ipcRenderer.invoke('pure:edit-endpoint', String(id), patch);
+  },
+  // Reset a local / WSL endpoint to defaults.
+  resetEndpoint(id) {
+    ipcRenderer.send('pure:reset-endpoint', String(id));
+  },
   // Hand a web URL to the system browser (about / repo links).
   openExternal(url) {
     ipcRenderer.send('pure:open-external', String(url));

@@ -242,10 +242,11 @@ function showPortConflictDialog(port, owner) {
 }
 
 /** Spawn `dsh web --no-open --port <port>` and wait until it serves. */
-async function spawnOnPort(cfg, port) {
+async function spawnOnPort(cfg, port, dshBin) {
+  const bin = dshBin || cfg.dshBin;
   const fixedUrl = port === 0 ? null : `http://127.0.0.1:${port}`;
   let spawnError = null;
-  const child = spawnDsh(cfg.dshBin, port);
+  const child = spawnDsh(bin, port);
   child.on('error', (err) => {
     spawnError = err;
   });
@@ -262,7 +263,7 @@ async function spawnOnPort(cfg, port) {
     killChild(child);
     if (spawnError !== null && spawnError.code === 'ENOENT') {
       throw new Error(
-        `无法启动 '${cfg.dshBin}'（ENOENT）。\n` +
+        `无法启动 '${bin}'（ENOENT）。\n` +
           '@deepseek-ai/dsh 是否已安装、且其 bin 目录在 PATH 上？\n' +
           '  npm install -g @deepseek-ai/dsh\n' +
           '或通过 DSH_DESKTOP_DSH 指定 dsh 的完整路径。'
@@ -281,15 +282,14 @@ async function spawnOnPort(cfg, port) {
  * Reuse detection is STRICT (needs a DSH structural marker) so a foreign HTTP
  * server is never mistaken for the harness.
  */
-async function resolveServer(cfg) {
-  const port = cfg.port;
+async function resolveServerFor(cfg, port, dshBin) {
   // OS-assigned port: the URL only appears in dsh stdout; probe it directly.
-  if (port === 0) return spawnOnPort(cfg, 0);
+  if (port === 0) return spawnOnPort(cfg, 0, dshBin);
   const url = `http://127.0.0.1:${port}`;
   for (;;) {
     const status = await probeWithGrace(url);
     if (status === 'harness') return { url, child: null };
-    if (status === 'free') return spawnOnPort(cfg, port);
+    if (status === 'free') return spawnOnPort(cfg, port, dshBin);
     const owner = findPortOwner(port);
     if (!showPortConflictDialog(port, owner)) app.exit(0);
     // else: loop back and probe again
@@ -306,53 +306,93 @@ function endpointsFile() {
   return path.join(app.getPath('userData'), 'endpoints.json');
 }
 
-/** User-added remote endpoints (persisted across launches). */
-function loadCustomEndpoints() {
+/**
+ * Persisted endpoint config: { local?: {name?,port?,dshBin?}, wsl?: {name?,port?,dsh?},
+ * custom: [{name,url}] }. The legacy v0.3.0 format (a bare array of custom
+ * endpoints) is still accepted.
+ */
+function loadEndpointsFile() {
   try {
-    const arr = JSON.parse(fs.readFileSync(endpointsFile(), 'utf8'));
-    if (Array.isArray(arr)) {
-      return arr
-        .filter(
-          (e) =>
-            e &&
-            typeof e.name === 'string' &&
-            e.name.trim() !== '' &&
-            typeof e.url === 'string' &&
-            /^https?:\/\//i.test(normalizeEndpointUrl(e.url))
-        )
-        .map((e) => ({
-          id: 'ep-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
-          kind: 'custom',
-          name: e.name.trim().slice(0, 40),
-          url: normalizeEndpointUrl(e.url),
-          child: null,
-          childAlive: false,
-          status: 'unknown',
-          detail: ''
-        }));
+    const data = JSON.parse(fs.readFileSync(endpointsFile(), 'utf8'));
+    if (Array.isArray(data)) return { local: null, wsl: null, custom: data };
+    if (data && typeof data === 'object') {
+      return {
+        local: data.local && typeof data.local === 'object' ? data.local : null,
+        wsl: data.wsl && typeof data.wsl === 'object' ? data.wsl : null,
+        custom: Array.isArray(data.custom) ? data.custom : []
+      };
     }
   } catch {
-    /* missing/invalid file → no custom endpoints */
+    /* missing/invalid file → defaults */
   }
-  return [];
+  return { local: null, wsl: null, custom: [] };
 }
 
-function persistCustomEndpoints() {
-  const arr = appState.endpoints
-    .filter((e) => e.kind === 'custom')
-    .map((e) => ({ name: e.name, url: e.url }));
+/** Build custom endpoint objects from the persisted list. */
+function loadCustomEndpoints() {
+  const { custom } = loadEndpointsFile();
+  return custom
+    .filter(
+      (e) =>
+        e &&
+        typeof e.name === 'string' &&
+        e.name.trim() !== '' &&
+        typeof e.url === 'string' &&
+        /^https?:\/\//i.test(normalizeEndpointUrl(e.url))
+    )
+    .map((e) => ({
+      id: 'ep-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+      kind: 'custom',
+      name: e.name.trim().slice(0, 40),
+      url: normalizeEndpointUrl(e.url),
+      child: null,
+      childAlive: false,
+      status: 'unknown',
+      detail: ''
+    }));
+}
+
+/** Persist every endpoint's user-customized settings (defaults omitted). */
+function persistEndpoints() {
+  const cfg = appState.cfg || {};
+  const defPort = cfg.port != null ? cfg.port : DEFAULT_PORT;
+  const obj = { custom: [] };
+  for (const ep of appState.endpoints) {
+    if (ep.kind === 'local') {
+      const o = {};
+      if (ep.name !== defaultLocalName()) o.name = ep.name;
+      if (ep.port !== defPort) o.port = ep.port;
+      if (ep.dshBin !== (cfg.dshBin || 'dsh')) o.dshBin = ep.dshBin;
+      if (Object.keys(o).length) obj.local = o;
+    } else if (ep.kind === 'wsl') {
+      const o = {};
+      if (ep.name !== 'WSL') o.name = ep.name;
+      if (ep.port !== defPort) o.port = ep.port;
+      if (ep.dshOverride) o.dsh = ep.dshOverride;
+      if (Object.keys(o).length) obj.wsl = o;
+    } else if (ep.kind === 'custom') {
+      obj.custom.push({ name: ep.name, url: ep.url });
+    }
+  }
   try {
-    fs.writeFileSync(endpointsFile(), JSON.stringify(arr, null, 2));
+    fs.writeFileSync(endpointsFile(), JSON.stringify(obj, null, 2));
   } catch {
     /* best-effort persistence */
   }
 }
 
+function defaultLocalName() {
+  return process.platform === 'win32' ? 'Windows' : '本机';
+}
+
 function makeLocalEndpoint() {
+  const cfg = appState.cfg || {};
   return {
     id: 'local',
     kind: 'local',
-    name: process.platform === 'win32' ? 'Windows' : '本机',
+    name: defaultLocalName(),
+    port: cfg.port != null ? cfg.port : DEFAULT_PORT,
+    dshBin: cfg.dshBin || 'dsh',
     url: null,
     child: null,
     childAlive: false,
@@ -362,10 +402,13 @@ function makeLocalEndpoint() {
 }
 
 function makeWslEndpoint() {
+  const cfg = appState.cfg || {};
   return {
     id: 'wsl',
     kind: 'wsl',
     name: 'WSL',
+    port: cfg.port != null ? cfg.port : DEFAULT_PORT,
+    dshOverride: null, // manual WSL-side dsh path; null = auto-detect
     url: null,
     child: null,
     childAlive: false,
@@ -375,10 +418,33 @@ function makeWslEndpoint() {
   };
 }
 
-/** Build the endpoint list (idempotent; custom endpoints loaded from disk). */
+/** Apply persisted per-endpoint settings (name / port / dsh) to a fresh endpoint. */
+function applySavedToEndpoint(ep, saved) {
+  if (!saved || typeof saved !== 'object') return;
+  if (typeof saved.name === 'string' && saved.name.trim() !== '') {
+    ep.name = saved.name.trim().slice(0, 40);
+  }
+  const p = Number(saved.port);
+  if (Number.isInteger(p) && p >= 0 && p <= 65535) ep.port = p;
+  if (ep.kind === 'local' && typeof saved.dshBin === 'string' && saved.dshBin.trim() !== '') {
+    ep.dshBin = saved.dshBin.trim();
+  }
+  if (ep.kind === 'wsl' && typeof saved.dsh === 'string' && saved.dsh.trim() !== '') {
+    ep.dshOverride = saved.dsh.trim();
+  }
+}
+
+/** Build the endpoint list (idempotent; settings + custom endpoints from disk). */
 function initEndpoints(urlOverride) {
-  const eps = [makeLocalEndpoint()];
-  if (process.platform === 'win32') eps.push(makeWslEndpoint());
+  const saved = loadEndpointsFile();
+  const local = makeLocalEndpoint();
+  applySavedToEndpoint(local, saved.local);
+  const eps = [local];
+  if (process.platform === 'win32') {
+    const wsl = makeWslEndpoint();
+    applySavedToEndpoint(wsl, saved.wsl);
+    eps.push(wsl);
+  }
   eps.push(...loadCustomEndpoints());
   // Explicit --url=/DSH_DESKTOP_URL becomes a registered endpoint, never a
   // raw untracked URL.
@@ -475,16 +541,18 @@ function spawnWslDsh(dshBin, ip, port) {
 async function resolveWslServer(cfg, ep) {
   const info = ep.wsl;
   if (!info || !info.installed) throw new Error('未检测到 WSL（请安装 WSL 与一个默认发行版）');
-  if (!info.dshBin) throw new Error('WSL 内未检测到 dsh。请先在 WSL 中执行：npm install -g @deepseek-ai/dsh');
+  const dsh = ep.dshOverride || info.dshBin;
+  if (!dsh) throw new Error('WSL 内未检测到 dsh。请先在 WSL 中执行：npm install -g @deepseek-ai/dsh，或在「编辑」中手动指定 dsh 路径');
+  const port = ep.port != null ? ep.port : cfg.port;
   const ip = info.ip;
-  const url = `http://${ip}:${cfg.port}`;
+  const url = `http://${ip}:${port}`;
   const status = await probeWithGrace(url);
   if (status === 'harness') return { url, child: null };
   if (status !== 'free') {
-    throw new Error(`WSL 内端口 ${cfg.port} 已被占用（请在 WSL 终端执行 lsof -i :${cfg.port} 查看）`);
+    throw new Error(`WSL 内端口 ${port} 已被占用（请在 WSL 终端执行 lsof -i :${port} 查看）`);
   }
   const fixedUrl = url;
-  const child = spawnWslDsh(info.dshBin, ip, cfg.port);
+  const child = spawnWslDsh(dsh, ip, port);
   let spawnError = null;
   child.on('error', (err) => {
     spawnError = err;
@@ -518,9 +586,10 @@ async function detectWslEndpoint() {
     if (!ep.wsl.installed) {
       ep.status = 'error';
       ep.detail = '未检测到 WSL';
-    } else if (!ep.wsl.dshBin) {
-      ep.status = 'error';
-      ep.detail = 'WSL 内未安装 dsh';
+    } else if (!ep.wsl.dshBin && !ep.dshOverride) {
+      // A manual dsh path (via 编辑) counts even when auto-detection fails.
+      ep.status = 'unknown';
+      ep.detail = '';
     } else {
       ep.status = 'unknown';
       ep.detail = '';
@@ -1029,7 +1098,7 @@ async function connectEndpoint(id) {
         // Explicit --url=/DSH_DESKTOP_URL at launch: no spawn, load it directly.
         url = cfg.urlOverride;
       } else {
-        ({ url, child } = await resolveServer(cfg));
+        ({ url, child } = await resolveServerFor(cfg, ep.port, ep.dshBin));
       }
     }
     ep.url = url;
@@ -1289,6 +1358,10 @@ function buildPureInfo() {
       url: e.url || null,
       status: e.status,
       detail: e.detail || '',
+      // Per-endpoint settings (for the 编辑 form).
+      port: e.port != null ? e.port : null,
+      dsh: e.kind === 'local' ? e.dshBin : null,
+      dshOverride: e.kind === 'wsl' ? e.dshOverride || null : null,
       wslIp: e.kind === 'wsl' && e.wsl ? e.wsl.ip : null,
       wslDsh: e.kind === 'wsl' && e.wsl ? e.wsl.dshBin : null
     })),
@@ -1648,10 +1721,129 @@ ipcMain.handle('pure:add-endpoint', (_event, name, url) => {
     status: 'unknown',
     detail: ''
   });
-  persistCustomEndpoints();
+  persistEndpoints();
   appState.activeEndpoint = appState.endpoints[appState.endpoints.length - 1].id;
   pushPureInfo();
   return { ok: true };
+});
+
+/**
+ * Edit an endpoint: name (all kinds), port + dsh executable (local),
+ * port + manual dsh path (wsl), url (custom). A config change detaches the
+ * endpoint's running state — 「打开 DSH Web」 reconnects with the new values.
+ */
+ipcMain.handle('pure:edit-endpoint', (_event, id, patch) => {
+  const ep = getEndpoint(typeof id === 'string' ? id : '');
+  if (!ep) return { ok: false, error: '端点不存在' };
+  if (!patch || typeof patch !== 'object') return { ok: false, error: '无效的参数' };
+  let changed = false;
+  const name = typeof patch.name === 'string' ? patch.name.trim().slice(0, 40) : '';
+  if (name !== '' && name !== ep.name) {
+    ep.name = name;
+    changed = true;
+  }
+  if (ep.kind === 'custom') {
+    const u = normalizeEndpointUrl(patch.url);
+    if (typeof patch.url === 'string' && u !== '' && u !== (ep.url || '')) {
+      let parsed;
+      try {
+        parsed = new URL(u);
+      } catch {
+        return { ok: false, error: '地址格式不正确（如：192.168.1.10:3080）' };
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { ok: false, error: '仅支持 http / https 地址' };
+      }
+      ep.url = u;
+      changed = true;
+    }
+  } else {
+    const pRaw = typeof patch.port === 'string' ? patch.port.trim() : patch.port;
+    if (pRaw !== '' && pRaw !== null && pRaw !== undefined) {
+      const p = Number(pRaw);
+      if (Number.isInteger(p) && p >= 0 && p <= 65535 && p !== ep.port) {
+        ep.port = p;
+        changed = true;
+      }
+    }
+    const d = typeof patch.dsh === 'string' ? patch.dsh.trim() : '';
+    if (ep.kind === 'local') {
+      if (d !== '' && d !== ep.dshBin) {
+        ep.dshBin = d;
+        changed = true;
+      }
+    } else {
+      const ov = d !== '' ? d : null;
+      if (ov !== (ep.dshOverride || null)) {
+        ep.dshOverride = ov;
+        changed = true;
+        if (ov !== null) {
+          // A manual path clears the "dsh not installed" error immediately.
+          if (ep.status === 'error') {
+            ep.status = 'unknown';
+            ep.detail = '';
+          }
+        }
+      }
+    }
+  }
+  if (!changed) return { ok: true };
+  // Config changed: detach the endpoint's running state.
+  if (ep.child !== null) {
+    killChild(ep.child);
+    ep.child = null;
+    ep.childAlive = false;
+  }
+  if (ep.kind !== 'custom') ep.url = null;
+  ep.status = 'unknown';
+  ep.detail = '';
+  if (appState.displayEndpoint === ep.id) {
+    appState.child = null;
+    appState.childAlive = false;
+    appState.url = null;
+    appState.displayEndpoint = null;
+    enterPureView(`「${ep.name}」设置已更新，点击「打开 DSH Web」重新连接`);
+  }
+  persistEndpoints();
+  pushPureInfo();
+  return { ok: true };
+});
+
+/**
+ * Reset a local / WSL endpoint to its defaults (name / port / dsh). WSL is
+ * re-detected afterwards.
+ */
+ipcMain.on('pure:reset-endpoint', (_event, id) => {
+  const ep = getEndpoint(typeof id === 'string' ? id : '');
+  if (!ep || ep.kind === 'custom') return; // view-only endpoints have no defaults
+  const cfg = appState.cfg || {};
+  if (ep.kind === 'local') {
+    ep.name = defaultLocalName();
+    ep.port = cfg.port != null ? cfg.port : DEFAULT_PORT;
+    ep.dshBin = cfg.dshBin || 'dsh';
+  } else {
+    ep.name = 'WSL';
+    ep.port = cfg.port != null ? cfg.port : DEFAULT_PORT;
+    ep.dshOverride = null;
+  }
+  if (ep.child !== null) {
+    killChild(ep.child);
+    ep.child = null;
+    ep.childAlive = false;
+  }
+  ep.url = null;
+  ep.status = 'unknown';
+  ep.detail = '';
+  if (appState.displayEndpoint === ep.id) {
+    appState.child = null;
+    appState.childAlive = false;
+    appState.url = null;
+    appState.displayEndpoint = null;
+    enterPureView(`「${ep.name}」已重置，点击「打开 DSH Web」重新连接`);
+  }
+  persistEndpoints();
+  pushPureInfo();
+  if (ep.kind === 'wsl') detectWslEndpoint().catch(() => {});
 });
 
 /** Remove a custom endpoint (local / WSL entries are permanent). */
@@ -1660,6 +1852,7 @@ ipcMain.on('pure:remove-endpoint', (_event, id) => {
   if (ep === null || ep.kind !== 'custom') return;
   appState.endpoints = appState.endpoints.filter((e) => e.id !== ep.id);
   persistCustomEndpoints();
+  persistEndpoints();
   if (appState.activeEndpoint === ep.id) appState.activeEndpoint = 'local';
   // A removed endpoint may still be what the window shows (a remote server we
   // cannot stop) — keep the session, just retarget the selector.
@@ -1691,11 +1884,12 @@ async function restartServer(epId) {
     getEndpoint(appState.activeEndpoint);
   if (ep === null || ep.kind === 'custom') return; // view-only endpoints
   restarting = true;
+  const port = ep.port != null ? ep.port : cfg.port;
   const portUrl =
     ep.kind === 'wsl' && ep.wsl && ep.wsl.ip
-      ? `http://${ep.wsl.ip}:${cfg.port}`
-      : `http://127.0.0.1:${cfg.port}`;
-  setStatus({ state: 'starting', port: cfg.port });
+      ? `http://${ep.wsl.ip}:${port}`
+      : `http://127.0.0.1:${port}`;
+  setStatus({ state: 'starting', port });
   // Show the theme-aware loading page so the harness area doesn't flash a
   // Chromium "can't reach this page" error while the old server is killed.
   showLoading();
@@ -1710,7 +1904,7 @@ async function restartServer(epId) {
       ep.childAlive = false;
     }
     // 2. Wait for the port to be released (covers child-exit delay).
-    if (cfg.port !== 0) {
+    if (port !== 0) {
       const deadline = Date.now() + 10_000;
       let free = false;
       while (Date.now() < deadline) {
@@ -1723,7 +1917,7 @@ async function restartServer(epId) {
       // 3. Still occupied locally (reused external dsh web): force-kill owner.
       //    WSL processes are invisible to Windows-side tooling — we just wait.
       if (!free && ep.kind === 'local') {
-        const owner = findPortOwner(cfg.port);
+        const owner = findPortOwner(port);
         if (owner) {
           forceKillPid(owner.pid);
           const d2 = Date.now() + 5_000;
@@ -1733,7 +1927,7 @@ async function restartServer(epId) {
         }
       }
       if (!free && ep.kind === 'wsl') {
-        throw new Error(`WSL 内端口 ${cfg.port} 仍被占用，请在 WSL 终端手动结束占用进程后重试`);
+        throw new Error(`WSL 内端口 ${port} 仍被占用，请在 WSL 终端手动结束占用进程后重试`);
       }
     }
     // 4. Spawn a fresh dsh web, then point the web view at it.
@@ -1742,7 +1936,7 @@ async function restartServer(epId) {
     if (ep.kind === 'wsl') {
       ({ url, child } = await resolveWslServer(cfg, ep));
     } else {
-      ({ url, child } = await spawnOnPort(cfg, cfg.port));
+      ({ url, child } = await spawnOnPort(cfg, port, ep.dshBin));
     }
     ep.url = url;
     ep.child = child;
