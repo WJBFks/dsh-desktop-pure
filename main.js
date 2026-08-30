@@ -1118,23 +1118,44 @@ async function connectEndpoint(id) {
   if (ep === null) return;
   appState.activeEndpoint = ep.id;
 
-  // Already showing this endpoint and it still answers → just reveal.
+  // Switch to the web view IMMEDIATELY — the page plays its own load (the
+  // browser's spinner) or the blank page; the connection runs in the
+  // background. The title bar shows the starting state.
+  const immediateUrl =
+    appState.displayEndpoint === ep.id
+      ? appState.url
+      : ep.kind === 'custom'
+        ? ep.url
+        : ep.urlOverride;
+  appState.view = 'web';
+  appState.currentPage = ep.id;
+  ep.status = 'starting';
+  ep.detail = '';
+  layout();
+  if (immediateUrl !== null) {
+    appState.url = immediateUrl;
+    appState.displayEndpoint = ep.id;
+    if (ep.url !== immediateUrl) ep.url = immediateUrl;
+    loadWeb(immediateUrl);
+  }
+  pushPureInfo();
+  setStatus({});
+
+  // Already showing this endpoint and it still answers → done, keep session.
   if (appState.displayEndpoint === ep.id && appState.url !== null) {
     const reachable =
       ep.childAlive || (await probe(appState.url, { assumeHarness: true })) === 'harness';
     if (reachable) {
-      showWebOnly();
+      ep.status = 'online';
+      ep.wasOnline = true;
+      ep.detail = '';
       pushPureInfo();
+      setStatus({});
+      refreshDshMenu();
       return;
     }
   }
 
-  showLoading();
-  appState.currentPage = ep.id;
-  ep.status = 'starting';
-  ep.detail = '';
-  pushPureInfo();
-  setStatus({});
   try {
     let url;
     let child = null;
@@ -1170,11 +1191,8 @@ async function connectEndpoint(id) {
     appState.child = child;
     appState.childAlive = child !== null;
     appState.displayEndpoint = ep.id;
-    appState.view = 'web';
-    appState.currentPage = ep.id;
-    layout();
     hideLoading();
-    loadWeb(url);
+    if (url !== appState.url) loadWeb(url);
     setStatus({});
     if (cfg.verbose) {
       console.log(
