@@ -558,6 +558,11 @@
     .ep-form .row {
       padding: 10px 0;
     }
+    /* The input row carries no divider of its own — the title row above
+       already separates fields, so a second line would double up. */
+    .ep-form .row-no-border {
+      border-bottom: none;
+    }
     .ep-form input:focus {
       border-color: var(--accent);
     }
@@ -855,7 +860,7 @@
                     <div class="row-desc">这个远程 DSH 的显示名</div>
                   </div>
                 </div>
-                <div class="row">
+                <div class="row row-no-border">
                   <input id="epFormName" type="text" placeholder="如：家里服务器" maxlength="40" />
                 </div>
                 <div class="row">
@@ -864,7 +869,7 @@
                     <div class="row-desc">远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）</div>
                   </div>
                 </div>
-                <div class="row">
+                <div class="row row-no-border">
                   <input id="epFormUrl" type="text" placeholder="192.168.1.10:3080 或 http://192.168.1.10:3080" />
                 </div>
                 <div class="row row-actions">
