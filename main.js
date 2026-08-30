@@ -937,7 +937,7 @@ function getEndpointView(epId) {
     if (ep) { ep.status = 'offline'; ep.detail = detail; }
     appState.url = null;
     v.webContents.loadURL(routerUrl(epId, 'error', name, detail));
-    setStatus({ reason: `杩炴帴鏂紑锛?{detail}` });
+    setStatus({ reason: `连接断开：${detail}` });
     pushPureInfo();
   });
   // Register first so the z-order re-arrangement below includes it.
