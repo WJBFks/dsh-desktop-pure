@@ -940,14 +940,12 @@ function getEndpointView(epId) {
     setStatus({ reason: `连接断开：${detail}` });
     pushPureInfo();
   });
-  // Register first so the z-order re-arrangement below includes it.
+  // Register first so layout() can find it.
   appState.views[epId] = v;
-  // Add to content view, then re-order so endpoint views stay BELOW
-  // pureView / titlebarView / menuView (which must remain clickable).
+  // Add to content view. Re-adding the static views moves them back to the
+  // top of the z-order (addChildView appends to the end = topmost), keeping
+  // titlebar / menu clickable above endpoint views.
   win.contentView.addChildView(v);
-  const all = win.contentView.getChildViews();
-  for (const av of all) win.contentView.removeChildView(av);
-  for (const ev of Object.values(appState.views)) win.contentView.addChildView(ev);
   if (pureView) win.contentView.addChildView(pureView);
   if (titlebarView) win.contentView.addChildView(titlebarView);
   if (menuView) win.contentView.addChildView(menuView);
@@ -2357,7 +2355,9 @@ async function main() {
   // The window appears immediately. Default to the Windows (local) endpoint
   // so the user lands on their primary dsh web on launch.
   createWindow();
+  console.log(`[main] about to connectEndpoint('local') cfg=${appState.cfg !== null}`);
   await connectEndpoint('local');
+  console.log(`[main] connectEndpoint done, currentPage=${appState.currentPage} view=${appState.view} url=${appState.url}`);
 }
 
 if (!app.requestSingleInstanceLock()) {
