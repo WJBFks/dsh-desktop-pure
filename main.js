@@ -903,6 +903,15 @@ function hardenWebContents(wc) {
   });
   // No webviews of any kind.
   wc.on('will-attach-webview', (event) => event.preventDefault());
+  // 加载失败组件: the moment a page fails to load (DNS / refused / 403…),
+  // land on the blank page immediately instead of showing Chromium's error
+  // page. The reason is carried by the endpoint status / title bar.
+  wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    if (errorCode === -3 /* ERR_ABORTED: superseded navigation */) return;
+    if (validatedURL && validatedURL !== 'about:blank' && appState.view === 'web') {
+      loadWeb('about:blank');
+    }
+  });
 }
 
 /**
@@ -1057,11 +1066,41 @@ function createWindow() {
   });
 }
 
-/** Navigate (or re-navigate) the dsh web view to a URL. */
-function loadWeb(url) {
-  if (webView !== null && !webView.webContents.isDestroyed()) {
-    webView.webContents.loadURL(url);
-  }
+/**
+ * Navigate (or re-navigate) the dsh web view to a URL. A CROSS-URL navigation
+ * blanks the view (a fresh harness app booted from scratch), so fade the view
+ * back in over ~120 ms — reads as a smooth page transition, not a white flash.
+ */
+let fadeTimer = null;
+function fadeWebViewIn() {
+  if (webView === null || webView.webContents.isDestroyed()) return;
+  if (fadeTimer !== null) clearInterval(fadeTimer);
+  let alpha = 0;
+  webView.webContents.insertCSS('html { opacity: 0; }').catch(() => {});
+  fadeTimer = setInterval(() => {
+    alpha += 0.34;
+    if (webView === null || webView.webContents.isDestroyed()) {
+      clearInterval(fadeTimer);
+      fadeTimer = null;
+      return;
+    }
+    if (alpha >= 1) {
+      alpha = 1;
+      clearInterval(fadeTimer);
+      fadeTimer = null;
+    }
+    webView.webContents
+      .insertCSS(`html { opacity: ${alpha}; transition: opacity 60ms linear; }`, {
+        key: 'dsh-fade'
+      })
+      .catch(() => {});
+  }, 60);
+}
+
+function loadWeb(url, { fade = false } = {}) {
+  if (webView === null || webView.webContents.isDestroyed()) return;
+  if (fade && webView.webContents.getURL() !== url) fadeWebViewIn();
+  webView.webContents.loadURL(url);
 }
 
 /**
@@ -1119,7 +1158,49 @@ async function connectEndpoint(id) {
   appState.view = 'web';
   appState.currentPage = ep.id;
 
-  // Already showing this endpoint and it still answers → keep the session.
+  // Same harness INSTANCE already on screen (the endpoint's target address
+  // resolves to the host we are displaying, whether or not it is "the same
+  // endpoint") → instant switch: zero re-navigation, session untouched.
+  let targetHost = null;
+  try {
+    const target =
+      ep.kind === 'custom'
+        ? ep.url
+        : ep.urlOverride ||
+          (ep.kind === 'wsl' && ep.wsl && ep.wsl.ip
+            ? `http://${ep.wsl.ip}:${ep.port}`
+            : `http://127.0.0.1:${ep.port}`);
+    if (target) targetHost = new URL(target).host;
+  } catch {
+    /* unparseable target → no shortcut */
+  }
+  if (appState.url !== null && targetHost !== null) {
+    let curHost = null;
+    try {
+      curHost = new URL(appState.url).host;
+    } catch {
+      /* ignore */
+    }
+    if (
+      curHost === targetHost &&
+      (ep.childAlive || (await probe(appState.url, { assumeHarness: true })) === 'harness')
+    ) {
+      ep.url = appState.url;
+      ep.status = 'online';
+      ep.wasOnline = true;
+      ep.detail = '';
+      if (appState.displayEndpoint === null || appState.displayEndpoint === ep.id) {
+        appState.displayEndpoint = ep.id;
+        appState.url = ep.url;
+      }
+      showWebOnly();
+      pushPureInfo();
+      return;
+    }
+  }
+
+  // Already showing THIS endpoint (its own recorded URL) and it answers →
+  // keep the session as-is.
   if (appState.displayEndpoint === ep.id && appState.url !== null) {
     const reachable =
       ep.childAlive || (await probe(appState.url, { assumeHarness: true })) === 'harness';
@@ -1148,7 +1229,11 @@ async function connectEndpoint(id) {
   ep.status = 'starting';
   ep.detail = '';
   layout();
-  loadWeb(immediateUrl !== null ? immediateUrl : 'about:blank');
+  // Cross-instance navigation: fade the fresh page in (blank-page loads are
+  // white-on-white — no fade needed).
+  loadWeb(immediateUrl !== null ? immediateUrl : 'about:blank', {
+    fade: immediateUrl !== null
+  });
   pushPureInfo();
   setStatus({});
 
@@ -1189,7 +1274,7 @@ async function connectEndpoint(id) {
     appState.child = child;
     appState.childAlive = child !== null;
     appState.displayEndpoint = ep.id;
-    if (renav) loadWeb(url);
+    if (renav) loadWeb(url, { fade: true });
     setStatus({});
     if (cfg.verbose) {
       console.log(
