@@ -835,8 +835,7 @@ function setThemeSource(source) {
 let win = null; // BaseWindow
 let webView = null; // WebContentsView: the dsh web page (kept alive to preserve its session)
 let pureView = null; // WebContentsView: the shell's own DSH Desktop Pure page (file://)
-let loadingView = null; // WebContentsView: transient loading overlay (transparent when hidden)
-let loadingVisible = false; // whether the loading overlay is currently shown
+
 let titlebarView = null; // WebContentsView: the one-row title bar (middle)
 let menuView = null; // WebContentsView: the dropdown menu (top, transparent)
 let tray = null; // System tray icon (hide-to-tray; server keeps running while hidden)
@@ -927,11 +926,7 @@ function layout() {
     pureView.setBounds({ x: OFF, y, width, height: h });
   }
   // Loading overlay: cover the content area when visible, else park off-screen.
-  if (loadingView !== null) {
-    loadingView.setBounds(
-      loadingVisible ? { x: 0, y, width, height: h } : { x: OFF, y, width: 0, height: 0 }
-    );
-  }
+
 }
 
 /** Platform-appropriate window options. */
@@ -988,12 +983,6 @@ function createWindow() {
     query: { v: String(Date.now()) }
   });
 
-  // Transient loading overlay (transparent when hidden). Shown only while dsh
-  // web is starting / restarting — it never replaces the web or pure page.
-  loadingView = new WebContentsView();
-  loadingView.setBackgroundColor('#00000000');
-  loadingView.webContents.loadFile(path.join(__dirname, 'loading.html'));
-
   // One-row title bar (middle). Its drag region moves the window.
   titlebarView = new WebContentsView({
     webPreferences: {
@@ -1018,11 +1007,10 @@ function createWindow() {
   menuView.setBackgroundColor('#00000000'); // fully transparent outside the menu
 
   // Stacking order: later-added views sit on top. Only one of webView /
-  // pureView is visible at a time (layout() hides the other off-screen); the
-  // loading overlay sits above the content, below the title bar and menu.
+  // pureView is visible at a time (layout() parks the other off-screen);
+  // the title bar and menu sit above the content.
   win.contentView.addChildView(webView);
   win.contentView.addChildView(pureView);
-  win.contentView.addChildView(loadingView);
   win.contentView.addChildView(titlebarView);
   win.contentView.addChildView(menuView);
   layout();
@@ -1063,8 +1051,6 @@ function createWindow() {
     win = null;
     webView = null;
     pureView = null;
-    loadingView = null;
-    loadingVisible = false;
     titlebarView = null;
     menuView = null;
     openMenu = null;
@@ -1083,17 +1069,13 @@ function loadWeb(url) {
  * web starts or restarts. It is a transient layer — it never replaces the
  * content of the web or pure page, so their sessions are preserved.
  */
-function showLoading() {
-  if (loadingView === null || loadingView.webContents.isDestroyed()) return;
-  loadingVisible = true;
-  layout();
-}
-
-/** Hide the loading overlay. */
-function hideLoading() {
-  loadingVisible = false;
-  if (loadingView !== null && !loadingView.webContents.isDestroyed()) layout();
-}
+/**
+ * "Loading" is no longer a page: it is the STARTING STATE of the endpoint
+ * itself (yellow dot + title bar 正在连接…). Kept as no-ops for the call
+ * sites; the state broadcast happens where ep.status is set.
+ */
+function showLoading() {}
+function hideLoading() {}
 
 // ---------------------------------------------------------------------------
 // View switching: the content area holds TWO live WebContentsViews — the dsh

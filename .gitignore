@@ -11,3 +11,6 @@ dist/
 *.lnk
 .DS_Store
 Thumbs.db
+
+# Local social-media publishing materials
+xiaohongshu/
