@@ -12,6 +12,36 @@ contextBridge.exposeInMainWorld('dshShell', {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node
+  },
+  // Live status pushes (main → renderer): the WSL setup-guide page keeps the
+  // step the user is on (never re-lands on background auto-detection) and
+  // refreshes its status bar in place when a probe lands.
+  onWslStatus(cb) {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('wsl:status', listener);
+    return () => ipcRenderer.removeListener('wsl:status', listener);
+  },
+  onWslInstallProgress(cb) {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('wsl:install-progress', listener);
+    return () => ipcRenderer.removeListener('wsl:install-progress', listener);
+  },
+  // WSL setup-guide page (loaded in an endpoint view): re-run WSL detection,
+  // or (re)connect the WSL endpoint. Harmless on the plain dsh web page.
+  wslRecheck() {
+    ipcRenderer.send('router:wsl-recheck');
+  },
+  wslRetry() {
+    ipcRenderer.send('router:wsl-retry');
+  },
+  wslInstallDsh() {
+    ipcRenderer.send('router:wsl-install-dsh');
+  },
+  wslInstallWsl(distro) {
+    ipcRenderer.send('router:wsl-install-wsl', typeof distro === 'string' ? distro : '');
+  },
+  wslInstallNode() {
+    ipcRenderer.send('router:wsl-install-node');
   }
 });
 

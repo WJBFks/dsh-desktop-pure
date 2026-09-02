@@ -36,6 +36,154 @@
       word-break: break-all;
     }
     .hint { margin-top: 28px; font-size: 13px; color: var(--dim); opacity: 0.7; }
+    /* WSL setup guide */
+    .guide { width: 100%; max-width: 560px; padding: 28px 28px 40px; box-sizing: border-box; }
+    .guide-head { text-align: center; margin-bottom: 22px; }
+    .guide-head .icon { font-size: 40px; margin-bottom: 10px; }
+    .guide-head .title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+    .guide-head .sub { font-size: 13px; color: var(--dim); }
+    .steps { display: flex; gap: 8px; margin-bottom: 18px; }
+    .step {
+      flex: 1; padding: 10px 6px; border: 1px solid rgba(128,128,128,0.22);
+      border-radius: 10px; cursor: pointer; text-align: center;
+      font-size: 13px; color: var(--dim); background: transparent; line-height: 1.3;
+    }
+    .step .n { display: block; font-size: 11px; opacity: 0.75; margin-bottom: 3px; }
+    .step.done { color: var(--accent); }
+    .step.active { border-color: var(--accent); color: var(--fg); background: rgba(59,130,246,0.10); }
+    .guide-body {
+      border: 1px solid rgba(128,128,128,0.22); border-radius: 12px;
+      padding: 18px 20px; min-height: 210px;
+    }
+    .guide-body h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+    .guide-body p { font-size: 13px; color: var(--dim); line-height: 1.7; margin: 0 0 12px; }
+    .guide-body p.err { color: var(--error); }
+    .guide-body code { font-family: "Cascadia Code", Consolas, "Courier New", monospace; }
+    .cmd {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(128,128,128,0.12); border: 1px solid rgba(128,128,128,0.22);
+      border-radius: 8px; padding: 9px 12px; margin-bottom: 12px;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace; font-size: 13px;
+    }
+    .cmd code { flex: 1; white-space: pre-wrap; overflow-wrap: break-word; color: var(--fg); }
+    .copy-btn {
+      flex-shrink: 0; border: 1px solid rgba(128,128,128,0.3); background: transparent;
+      color: var(--dim); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+    .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
+    .status-line { font-size: 13px; margin-bottom: 16px; }
+    .status-line .ok { color: var(--accent); }
+    .status-line .bad { color: var(--error); }
+    .status-line .dim { color: var(--dim); }
+    .action-btn {
+      width: 100%; padding: 10px; border: none; border-radius: 8px;
+      background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .action-btn:hover { filter: brightness(1.12); }
+    .action-btn.recheck {
+      background: rgba(59,130,246,0.10);
+      border: 1px solid rgba(59,130,246,0.30);
+      color: var(--accent);
+    }
+    .action-btn.recheck:hover:not(:disabled) {
+      background: rgba(59,130,246,0.16);
+      filter: none;
+    }
+    .action-btn.recheck:disabled {
+      cursor: not-allowed;
+      background: rgba(59,130,246,0.06);
+      border-color: rgba(128,128,128,0.22);
+      color: var(--dim);
+      filter: none;
+    }
+    .guide-footer { margin-top: 22px; }
+    .guide-footer > :first-child { margin-top: 0; }
+    .guide-divider {
+      border: none; height: 1px;
+      background: rgba(128,128,128,0.22);
+      margin: 0 -20px 16px;
+    }
+    .action-btn.auto {
+      width: auto; min-width: 220px;
+      display: block; margin: 0 auto 10px;
+      padding: 10px 18px;
+    }
+    .action-btn.auto:disabled {
+      background: rgba(59,130,246,0.08);
+      color: var(--dim);
+      cursor: not-allowed;
+      filter: none;
+    }
+    .wsl-distro-options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .action-btn.distro {
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.25;
+      text-align: center;
+    }
+    .action-btn.distro .distro-name { font-size: 13px; }
+    .action-btn.distro .distro-tag { font-size: 12px; font-weight: 500; opacity: 0.9; }
+    .action-btn.distro:disabled {
+      background: rgba(59,130,246,0.08);
+      color: var(--dim);
+      cursor: not-allowed;
+      filter: none;
+    }
+    .install-status {
+      min-height: 18px; margin: -2px 0 8px;
+      font-size: 12px; color: var(--dim);
+      text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .manual-toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 10px; padding: 0; border: none; background: transparent;
+      color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .manual-toggle .mk { font-size: 11px; color: var(--dim); width: 12px; text-align: center; }
+    .manual-toggle.open .mk { color: var(--accent); }
+    .manual-body { margin-top: 10px; }
+    .manual-body[hidden] { display: none; }
+    .substep { margin-bottom: 18px; }
+    .substep h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .subhint { font-size: 12px; color: var(--dim); opacity: 0.85; margin: 0 0 8px; }
+    .acc { margin-top: 10px; }
+    .acc-head {
+      cursor: pointer; user-select: none;
+      font-size: 13px; font-weight: 600;
+      padding: 9px 12px; border: 1px solid rgba(128,128,128,0.22);
+      border-radius: 8px; background: rgba(128,128,128,0.05);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .acc-head + .acc-head { margin-top: 10px; }
+    .acc-head .mk { font-size: 11px; color: var(--dim); width: 12px; text-align: center; }
+    .acc-head .tag { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--dim); }
+    .acc-head.open { border-color: var(--accent); background: rgba(59,130,246,0.08); }
+    .acc-head.open .mk { color: var(--accent); }
+    .acc-body { padding: 10px 2px 2px; }
+    .acc-body[hidden] { display: none; }
+    body.is-wsl { padding-bottom: 44px; }
+    .wsl-statusbar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 9px 24px; font-size: 13px; text-align: center;
+      background: var(--bg);
+    }
+    .wsl-statusbar .seg { color: var(--dim); }
+    .wsl-statusbar .seg.ok { color: var(--accent); }
+    .wsl-statusbar .seg.bad { color: var(--error); }
+    .wsl-statusbar .seg.dim { color: var(--dim); }
+    .wsl-statusbar .sep { color: var(--dim); opacity: 0.45; margin: 0 10px; }
   </style>
 </head>
 <body>
@@ -43,9 +191,47 @@
     (function () {
       var p = new URLSearchParams(location.search);
       var status = p.get('status') || 'starting';
+      var kind = p.get('kind') || '';
       var name = p.get('name') || 'DSH';
       var detail = p.get('detail') || '';
       var el = document.body;
+
+      // Live state (URL params, updated by main-process pushes).
+      // IMPORTANT: this initializer must run BEFORE the `if (kind === 'wsl')`
+      // branch below, because renderWslGuide() (and the content closures that
+      // read wslLive) execute on that branch. A later assignment would leave
+      // wslLive undefined during the initial guide render.
+      var wslLive = {
+        wslInstalled: p.get('wslInstalled') === 'true',
+        dshPath: p.get('dshPath') || '',
+        node: p.get('node') || '',
+        npm: p.get('npm') || '',
+        distro: p.get('distro') || '',
+        dshVersion: p.get('dshVersion') || '',
+        port: p.get('port') || '3080',
+        wslIp: p.get('wslIp') || '127.0.0.1',
+        status: p.get('status') || 'unknown',
+        detail: p.get('detail') || '',
+        chosenDistro: ''
+      };
+
+      // WSL endpoint that isn't coming up → the three-step setup guide.
+      // The URL params are authoritative: main builds them fresh on every
+      // load (status is 'starting' only while a first/manual detection is
+      // in flight), so this page never has to guess from live state.
+      if (kind === 'wsl') {
+        if (status === 'starting') {
+          // 首次 / 手动检测进行中 → 加载中（不预设任何步骤高亮，检测完成
+          // 后由主进程重载本页，落到卡住的步骤）。
+          el.innerHTML =
+            '<div class="spinner"></div>' +
+            '<div class="title" style="margin-top:24px">正在检测 WSL…</div>' +
+            '<div class="desc">正在检测 WSL、Node.js 与 dsh 环境</div>';
+        } else {
+          renderWslGuide();
+        }
+        return;
+      }
 
       if (status === 'starting') {
         el.innerHTML =
@@ -70,6 +256,535 @@
           '<div class="title">未启动</div>' +
           '<div class="desc">' + name + ' 的 dsh web 未运行</div>' +
           '<div class="hint">重新点击该页面可启动</div>';
+      }
+
+      // --- WSL setup guide (three-step walkthrough) ----------------------
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+      function copyText(t) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(t).catch(function () { fallbackCopy(t); });
+        } else {
+          fallbackCopy(t);
+        }
+      }
+      function fallbackCopy(t) {
+        var ta = document.createElement('textarea');
+        ta.value = t;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+        document.body.removeChild(ta);
+      }
+      // Live state pushed from the shell (main process). The step the user is
+      // on is NEVER moved by background auto-detection — only the status line
+      // / status bar update in place. A page reload (initial load or a
+      // completed 首次/手动检测) re-lands the step from the URL params.
+      // NOTE: the shell may deliver a status push while this page is still on
+      // about:blank (the listener is registered at preload time) — every
+      // DOM-touching callback below must no-op until the guide exists.
+      // A push that carries FRESH probe data (wslInstalled is an explicit
+      // boolean; the URL params never carry it) is ALWAYS recorded so the
+      // guide renders with the newest state once it appears.
+      var activeStepId = null;
+      // Bound inside renderWslGuide once the guide DOM exists; used as the
+      // "guide is ready" marker by the live-status listener.
+      var doSetStep = null;      // (stepId) => switch to a step (user-triggered / landing)
+      var doRefreshStatus = null; // () => update status lines in place, keep the step
+      function wslStuckStep() {
+        // 必须与主进程 wslStep(ep) 的顺序一致：wsl → node → dsh → connect。
+        return !wslLive.wslInstalled
+          ? 'install-wsl'
+          : !wslLive.node
+          ? 'install-node'
+          : !wslLive.dshPath
+          ? 'install-dsh'
+          : 'connect';
+      }
+      if (window.dshShell && window.dshShell.onWslStatus) {
+        window.dshShell.onWslStatus(function (s) {
+          if (!s || typeof s !== 'object') return;
+          // 页面未就绪（导航中 / 检测中占位页）：只记状态，不碰 DOM。
+          // 渲染完成后会按最终状态重新拉取；主进程侧也有延迟兜底推送。
+          if (s.kind !== 'auto' && s.status === 'starting') {
+            wslLive.status = 'starting';
+            wslLive.detail = s.detail || '';
+            return;
+          }
+          if (typeof s.wslInstalled === 'boolean') wslLive.wslInstalled = s.wslInstalled;
+          if (typeof s.dshPath === 'string') wslLive.dshPath = s.dshPath;
+          if (typeof s.node === 'string') wslLive.node = s.node;
+          if (typeof s.npm === 'string') wslLive.npm = s.npm;
+          if (typeof s.distro === 'string') wslLive.distro = s.distro;
+          if (typeof s.dshVersion === 'string') wslLive.dshVersion = s.dshVersion;
+          if (typeof s.port === 'string' && s.port) wslLive.port = s.port;
+          if (typeof s.status === 'string' && s.status) wslLive.status = s.status;
+          if (typeof s.detail === 'string') wslLive.detail = s.detail;
+          if (doSetStep === null) return; // guide DOM not ready yet (loading placeholder)
+          if ((s.kind === 'manual' || s.kind === 'first') && s.status !== 'starting') {
+            // 手动 / 首次检测完成（用户触发）→ 允许落到卡住的步骤。
+            // 主进程随后会重载本页落步，此处理仅作兜底。
+            if (activeStepId !== wslStuckStep()) doSetStep(wslStuckStep());
+          } else {
+            // 'auto'（后台周期检测）→ 只原位刷新状态行 / 状态栏，
+            // 绝不移动用户当前所在的步骤。
+            doRefreshStatus();
+          }
+        });
+      }
+
+      function renderWslGuide() {
+        var step = p.get('step') || 'install-wsl';
+        var shell = window.dshShell || {};
+
+        var steps = [
+          { id: 'install-wsl', n: 1, label: '安装 WSL' },
+          { id: 'install-node', n: 2, label: '安装 Node' },
+          { id: 'install-dsh', n: 3, label: '安装 DSH' },
+          { id: 'connect', n: 4, label: '连接 DSH' }
+        ];
+        var cmdBlock = function (cmd) {
+          return (
+            '<div class="cmd"><code>' + esc(cmd) + '</code>' +
+            '<button class="copy-btn" data-cmd="' + esc(cmd) + '">复制</button></div>'
+          );
+        };
+        var content = {
+          'install-wsl': function () {
+            var distros = [
+              { id: 'Ubuntu-24.04', tag: '（推荐）' },
+              { id: 'Ubuntu-26.04', tag: '（最新版）' },
+              { id: 'Ubuntu-22.04', tag: '（成熟稳定）' }
+            ];
+            var distroButtons = distros.map(function (d) {
+              var disabled = wslLive.wslInstalled || (wslLive.chosenDistro && wslLive.chosenDistro !== d.id);
+              var name = wslLive.wslInstalled ? '已安装' : ('安装' + d.id);
+              return (
+                '<button class="action-btn distro" data-action="installwsl" data-distro="' + esc(d.id) + '" data-tag="' + esc(d.tag) + '"' + (disabled ? ' disabled' : '') + '>' +
+                  '<span class="distro-name">' + esc(name) + '</span>' +
+                  '<span class="distro-tag">' + esc(d.tag) + '</span>' +
+                '</button>'
+              );
+            }).join('');
+            return (
+              '<h3>第 1 步 · 安装 WSL</h3>' +
+              '<p>在 Windows 上启用 WSL，并选择一个 Ubuntu 发行版安装。点击其中一个后，其余版本会锁定，不再可安装。</p>' +
+              '<div class="status-line" id="wslS1">' +
+                (wslLive.wslInstalled ? '<span class="ok">✓ 已检测到 WSL</span>' : '<span class="bad">● 未检测到 WSL</span>') +
+              '</div>' +
+              '<div class="wsl-distro-options">' + distroButtons + '</div>' +
+              '<div class="install-status" id="installStatus-wsl"></div>' +
+              '<button class="manual-toggle" data-manual="wsl"><span class="mk">▶</span> 手动安装</button>' +
+              '<div class="manual-body" id="manual-wsl" hidden>' +
+                '<p class="subhint">以<b>管理员身份</b>打开 PowerShell，选择其中一条执行，装完重启：</p>' +
+                cmdBlock('wsl --install -d Ubuntu-24.04') +
+                cmdBlock('wsl --install -d Ubuntu-26.04') +
+                cmdBlock('wsl --install -d Ubuntu-22.04') +
+              '</div>' +
+              '<div class="guide-footer">' +
+              '<hr class="guide-divider">' +
+              '<button class="action-btn recheck" data-action="recheck" data-recheck-step="install-wsl"' + (wslLive.wslInstalled ? ' disabled' : '') + '>' + (wslLive.wslInstalled ? '已安装' : '我已安装，重新检测') + '</button>' +
+              '</div>'
+            );
+          },
+          'install-node': function () {
+            var nodeOk = wslLive.node !== '';
+            var nodeStatus = nodeOk
+              ? '<span class="ok">✓ 已检测到 Node.js ' + esc(wslLive.node) + (wslLive.npm ? ' / npm ' + esc(wslLive.npm) : '') + '</span>'
+              : '<span class="bad">● 未检测到 Node.js / npm</span>';
+            return (
+              '<h3>第 2 步 · 在 WSL 中安装 Node.js</h3>' +
+              '<p>安装 dsh 前，需先在 WSL 的 Linux 环境里装好 Node.js（≥ 22）。</p>' +
+              '<div class="status-line" id="wslNodeStatus">' + nodeStatus + '</div>' +
+              '<button class="action-btn auto" data-action="installnode" data-auto-step="install-node"' + (nodeOk ? ' disabled' : '') + '>' + (nodeOk ? '已安装' : '自动安装（推荐）') + '</button>' +
+              '<div class="install-status" id="installStatus-node"></div>' +
+              '<button class="manual-toggle" data-manual="node"><span class="mk">▶</span> 手动安装</button>' +
+              '<div class="manual-body" id="manual-node" hidden>' +
+                '<p class="subhint">在 WSL 终端内安装 Node.js ≥ 22（以 Ubuntu/Debian 为例）：</p>' +
+                cmdBlock('curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -') +
+                cmdBlock('sudo apt-get install -y nodejs') +
+                '<p class="subhint">其它发行版：用系统包管理器安装，或用 nvm（<code>nvm install 20</code>）。</p>' +
+              '</div>' +
+              '<div class="guide-footer">' +
+              '<hr class="guide-divider">' +
+              '<button class="action-btn recheck" data-action="recheck" data-recheck-step="install-node"' + (nodeOk ? ' disabled' : '') + '>' + (nodeOk ? '已安装' : '我已安装，重新检测') + '</button>' +
+              '</div>'
+            );
+          },
+          'install-dsh': function () {
+            return (
+              '<h3>第 3 步 · 在 WSL 中安装 DSH</h3>' +
+              '<p>在 <b>WSL 的 Linux 环境</b>内安装（不是 Windows 的 npm）。</p>' +
+              '<div class="status-line" id="wslDshStatus">' +
+                (wslLive.dshPath
+                  ? '<span class="ok">✓ 检测到 dsh：<code>' + esc(wslLive.dshPath) + '</code></span>'
+                  : '<span class="bad">● WSL 内未检测到 dsh</span>') +
+              '</div>' +
+              '<button class="action-btn auto" data-action="installdsh" data-auto-step="install-dsh"' + (wslLive.dshPath ? ' disabled' : '') + '>' + (wslLive.dshPath ? '已安装' : '自动安装（推荐）') + '</button>' +
+              '<div class="install-status" id="installStatus-dsh"></div>' +
+              '<button class="manual-toggle" data-manual="dsh"><span class="mk">▶</span> 手动安装</button>' +
+              '<div class="manual-body" id="manual-dsh" hidden>' +
+                cmdBlock('npm install -g @deepseek-ai/dsh --loglevel=verbose') +
+              '</div>' +
+              '<div class="guide-footer">' +
+              '<hr class="guide-divider">' +
+              '<button class="action-btn recheck" data-action="recheck" data-recheck-step="install-dsh"' + (wslLive.dshPath ? ' disabled' : '') + '>' + (wslLive.dshPath ? '已安装' : '我已安装，重新检测') + '</button>' +
+              '</div>'
+            );
+          },
+          'connect': function () {
+            var addr = esc(wslLive.wslIp) + ':' + esc(wslLive.port);
+            var dshWebCmd = 'dsh web --no-open --port ' + esc(wslLive.port);
+            var offline = wslLive.status === 'offline' || wslLive.status === 'error';
+            var connOk = wslLive.status === 'online';
+            var connStatus =
+              wslLive.status === 'online'
+                ? '<span class="ok">✓ 已连接 DSH</span>'
+                : wslLive.status === 'starting'
+                  ? '<span class="dim">● 正在连接…</span>'
+                  : wslLive.status === 'error'
+                    ? '<span class="bad">● 连接失败</span>'
+                    : wslLive.status === 'offline'
+                      ? '<span class="bad">● 未连接 DSH</span>'
+                      : '<span class="dim">● 状态未知</span>';
+            return (
+              '<h3>第 4 步 · 连接 WSL 的 DSH</h3>' +
+              '<p>前三步就绪后，壳会在 WSL 里拉起 <code>dsh web</code> 并连接。访问地址：<b>' + addr + '</b>（Windows 经 WSL2 回环转发到 WSL）。</p>' +
+              '<div class="status-line" id="wslConnStatus">' + connStatus + '</div>' +
+              (offline && wslLive.detail ? '<p class="err" id="wslConnErr">' + esc(wslLive.detail) + '</p>' : '<p class="err" id="wslConnErr" style="display:none"></p>') +
+              '<button class="action-btn auto" data-action="retry" data-auto-step="connect"' + (connOk ? ' disabled' : '') + '>' + (connOk ? '已启动' : '自动启动（推荐）') + '</button>' +
+              '<div class="install-status" id="installStatus-connect"></div>' +
+              '<button class="manual-toggle" data-manual="connect"><span class="mk">▶</span> 手动启动</button>' +
+              '<div class="manual-body" id="manual-connect" hidden>' +
+                '<p class="subhint">在 WSL 终端内执行（端口 ' + esc(wslLive.port) + '）：</p>' +
+                cmdBlock(dshWebCmd) +
+              '</div>' +
+              '<div class="guide-footer">' +
+              '<hr class="guide-divider">' +
+              '<button class="action-btn recheck" data-action="retry" data-recheck-step="connect"' + (connOk ? ' disabled' : '') + '>' + (connOk ? '已启动' : '我已启动，重新检测') + '</button>' +
+              '</div>'
+            );
+          }
+        };
+
+        el.classList.add('is-wsl');
+        el.innerHTML =
+          '<div class="guide">' +
+            '<div class="guide-head">' +
+              '<div class="icon">🐧</div>' +
+              '<div class="title">连接 WSL 的 DSH</div>' +
+              '<div class="sub">逐项完成即可，当前卡住的步骤已高亮</div>' +
+            '</div>' +
+            '<div class="steps">' +
+              steps.map(function (s) {
+                return (
+                  '<div class="step" data-step="' + s.id + '"><span class="n">第 ' + s.n + ' 步</span>' + s.label + '</div>'
+                );
+              }).join('') +
+            '</div>' +
+            '<div class="guide-body" id="wslBody"></div>' +
+          '</div>' +
+          '<div class="wsl-statusbar" id="wslStatusBar"></div>';
+
+        // Expose the step / status operations to the live-status listener
+        // (wired up before this function runs; it acts once these exist).
+        doSetStep = function (id) {
+          if (!id) return;
+          activeStepId = id;
+          var idx = -1;
+          for (var si = 0; si < steps.length; si++) {
+            if (steps[si].id === id) { idx = si; break; }
+          }
+          el.querySelectorAll('.step').forEach(function (x) {
+            var sid = x.getAttribute('data-step');
+            var xi = -1;
+            for (var sj = 0; sj < steps.length; sj++) {
+              if (steps[sj].id === sid) { xi = sj; break; }
+            }
+            x.classList.toggle('done', xi !== -1 && idx !== -1 && xi < idx);
+            x.classList.toggle('active', sid === id);
+          });
+          document.getElementById('wslBody').innerHTML = content[id] ? content[id]() : '';
+          bind();
+          refreshWslStatusInPlace();
+        };
+
+        function setDistroButton(btn, name, tag, disabled, busy) {
+          if (!btn) return;
+          if (busy) btn.setAttribute('data-busy', '1');
+          else btn.removeAttribute('data-busy');
+          btn.disabled = !!disabled;
+          btn.innerHTML =
+            '<span class="distro-name">' + esc(name) + '</span>' +
+            '<span class="distro-tag">' + esc(tag) + '</span>';
+        }
+        function refreshWslDistroButtons() {
+          var buttons = document.querySelectorAll('#wslBody .action-btn.distro');
+          if (!buttons.length) return;
+          buttons.forEach(function (btn) {
+            var id = btn.getAttribute('data-distro') || '';
+            var tag = btn.getAttribute('data-tag') || '';
+            var busy = btn.getAttribute('data-busy') === '1';
+            if (!id) return;
+            if (wslLive.wslInstalled) {
+              setDistroButton(btn, '已安装', tag, true, false);
+              return;
+            }
+            if (wslLive.chosenDistro && wslLive.chosenDistro !== id) {
+              setDistroButton(btn, '安装' + id, tag, true, false);
+              return;
+            }
+            setDistroButton(btn, '安装' + id, tag, false, false);
+          });
+        }
+        if (shell.onWslInstallProgress) {
+          var statusKeyByStep = { 'install-wsl': 'wsl', 'install-node': 'node', 'install-dsh': 'dsh', 'connect': 'connect' };
+          shell.onWslInstallProgress(function (p) {
+            if (!p || !p.step) return;
+            var statusEl = document.getElementById('installStatus-' + (statusKeyByStep[p.step] || p.step));
+            if (p.step === 'install-wsl') {
+              var distro = p.distro || wslLive.chosenDistro || '';
+              if (distro) wslLive.chosenDistro = distro;
+              var allDistroBtns = document.querySelectorAll('#wslBody .action-btn.distro');
+              var btn = distro
+                ? document.querySelector('#wslBody .action-btn.distro[data-distro="' + distro + '"]')
+                : null;
+              if (p.status === 'running') {
+                if (statusEl) statusEl.textContent = p.detail || '';
+                var pctText = p.percent != null
+                  ? ('安装中...（' + Math.floor(p.percent) + '%）')
+                  : '安装中...';
+                allDistroBtns.forEach(function (b) {
+                  var id = b.getAttribute('data-distro') || '';
+                  if (distro && id === distro) setDistroButton(b, pctText, id, true, true);
+                  else setDistroButton(b, '安装' + id, b.getAttribute('data-tag') || '', true, false);
+                });
+                return;
+              }
+              if (p.status === 'error') {
+                if (statusEl) statusEl.textContent = p.detail || '安装失败';
+                allDistroBtns.forEach(function (b) {
+                  var id = b.getAttribute('data-distro') || '';
+                  if (distro && id === distro) setDistroButton(b, '安装失败，请重试', id, false, false);
+                  else setDistroButton(b, '安装' + id, b.getAttribute('data-tag') || '', true, false);
+                });
+                return;
+              }
+              if (p.status === 'done') {
+                if (statusEl) statusEl.textContent = '正在检测…';
+                allDistroBtns.forEach(function (b) {
+                  var id = b.getAttribute('data-distro') || '';
+                  if (distro && id === distro) setDistroButton(b, '正在检测…', id, true, false);
+                  else setDistroButton(b, '安装' + id, b.getAttribute('data-tag') || '', true, false);
+                });
+                return;
+              }
+            }
+            var autoBtn = document.querySelector('#wslBody .auto[data-auto-step="' + p.step + '"]');
+            if (!autoBtn) return;
+            if (p.status === 'running') {
+              if (statusEl) statusEl.textContent = p.detail || '';
+              autoBtn.setAttribute('data-busy', '1');
+              autoBtn.disabled = true;
+              autoBtn.textContent = (p.percent != null)
+                ? ('安装中...（' + Math.floor(p.percent) + '%）')
+                : '安装中...';
+            } else if (p.status === 'error') {
+              if (statusEl) statusEl.textContent = p.detail || '安装失败';
+              autoBtn.removeAttribute('data-busy');
+              autoBtn.disabled = false;
+              autoBtn.textContent = '安装失败，请重试';
+            } else if (p.status === 'done') {
+              if (statusEl) statusEl.textContent = '正在检测…';
+              autoBtn.removeAttribute('data-busy');
+              autoBtn.disabled = true;
+              autoBtn.textContent = '正在检测…';
+            }
+          });
+        }
+
+        function refreshWslStatusInPlace() {
+          // Only text segments — the step / active highlight is never touched.
+          var s1 = document.getElementById('wslS1');
+          if (s1) {
+            s1.innerHTML = wslLive.wslInstalled
+              ? '<span class="ok">✓ 已检测到 WSL</span>'
+              : '<span class="bad">● 未检测到 WSL</span>';
+          }
+          var ns = document.getElementById('wslNodeStatus');
+          if (ns) {
+            ns.innerHTML = wslLive.node
+              ? '<span class="ok">✓ 已检测到 Node.js ' + esc(wslLive.node) + (wslLive.npm ? ' / npm ' + esc(wslLive.npm) : '') + '</span>'
+              : '<span class="bad">● 未检测到 Node.js / npm</span>';
+          }
+          var ds = document.getElementById('wslDshStatus');
+          if (ds) {
+            ds.innerHTML = wslLive.dshPath
+              ? '<span class="ok">✓ 检测到 dsh：<code>' + esc(wslLive.dshPath) + '</code></span>'
+              : '<span class="bad">● WSL 内未检测到 dsh</span>';
+          }
+          var ce = document.getElementById('wslConnErr');
+          if (ce) {
+            var show = (wslLive.status === 'offline' || wslLive.status === 'error') && wslLive.detail;
+            ce.style.display = show ? '' : 'none';
+            if (show) ce.textContent = wslLive.detail;
+          }
+          var bar = document.getElementById('wslStatusBar');
+          if (bar) {
+            bar.innerHTML = statusSegs()
+              .map(function (s) {
+                return '<span class="seg ' + (s.ok ? 'ok' : s.dim ? 'dim' : 'bad') + '">' + esc(s.t) + '</span>';
+              })
+              .join('<span class="sep">|</span>');
+          }
+          var cs = document.getElementById('wslConnStatus');
+          if (cs) {
+            cs.innerHTML =
+              wslLive.status === 'online'
+                ? '<span class="ok">✓ 已连接 DSH</span>'
+                : wslLive.status === 'starting'
+                  ? '<span class="dim">● 正在连接…</span>'
+                  : wslLive.status === 'error'
+                    ? '<span class="bad">● 连接失败</span>'
+                    : wslLive.status === 'offline'
+                      ? '<span class="bad">● 未连接 DSH</span>'
+                      : '<span class="dim">● 状态未知</span>';
+          }
+          var auto = document.querySelector('#wslBody .auto');
+          if (auto) {
+            var step = auto.getAttribute('data-auto-step');
+            var autoDone = false;
+            var autoDoneLabel = '';
+            if (step === 'install-wsl') { autoDone = !!wslLive.wslInstalled; autoDoneLabel = '已安装'; }
+            else if (step === 'install-node') { autoDone = !!wslLive.node; autoDoneLabel = '已安装'; }
+            else if (step === 'install-dsh') { autoDone = !!wslLive.dshPath; autoDoneLabel = '已安装'; }
+            else if (step === 'connect') { autoDone = wslLive.status === 'online'; autoDoneLabel = '已启动'; }
+            if (autoDone) {
+              auto.disabled = true;
+              auto.textContent = autoDoneLabel;
+              auto.removeAttribute('data-busy');
+            } else if (auto.getAttribute('data-busy') !== '1') {
+              auto.disabled = false;
+              auto.textContent = step === 'connect' ? '自动启动（推荐）' : '自动安装（推荐）';
+            }
+          }
+          var recheck = document.querySelector('#wslBody .recheck');
+          if (recheck) {
+            var step2 = recheck.getAttribute('data-recheck-step');
+            var done = false;
+            var doneLabel = '';
+            if (step2 === 'install-wsl') { done = !!wslLive.wslInstalled; doneLabel = '已安装'; }
+            else if (step2 === 'install-node') { done = !!wslLive.node; doneLabel = '已安装'; }
+            else if (step2 === 'install-dsh') { done = !!wslLive.dshPath; doneLabel = '已安装'; }
+            else if (step2 === 'connect') { done = wslLive.status === 'online'; doneLabel = '已启动'; }
+            recheck.disabled = done;
+            recheck.textContent = done
+              ? doneLabel
+              : (step2 === 'connect' ? '我已启动，重新检测' : '我已安装，重新检测');
+          }
+        }
+        doRefreshStatus = refreshWslStatusInPlace;
+
+        function bind() {
+          var body = document.getElementById('wslBody');
+          if (!body) return;
+          body.querySelectorAll('.copy-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              copyText(btn.getAttribute('data-cmd'));
+              btn.textContent = '已复制';
+              setTimeout(function () { btn.textContent = '复制'; }, 1500);
+            });
+          });
+          body.querySelectorAll('.action-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var a = btn.getAttribute('data-action');
+              if (a === 'recheck' && shell.wslRecheck) shell.wslRecheck();
+              else if (a === 'retry' && shell.wslRetry) shell.wslRetry();
+              else if (a === 'installdsh' && shell.wslInstallDsh) {
+                btn.setAttribute('data-busy', '1');
+                btn.textContent = '安装中...';
+                btn.disabled = true;
+                shell.wslInstallDsh();
+              } else if (a === 'installwsl' && shell.wslInstallWsl) {
+                var distro = btn.getAttribute('data-distro') || '';
+                if (!distro || wslLive.wslInstalled) return;
+                if (wslLive.chosenDistro && wslLive.chosenDistro !== distro) return;
+                wslLive.chosenDistro = distro;
+                body.querySelectorAll('.action-btn.distro').forEach(function (dBtn) {
+                  if (dBtn !== btn) dBtn.disabled = true;
+                });
+                btn.setAttribute('data-busy', '1');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="distro-name">安装中...</span><span class="distro-tag">' + esc(distro) + '</span>';
+                shell.wslInstallWsl(distro);
+              } else if (a === 'installnode' && shell.wslInstallNode) {
+                btn.setAttribute('data-busy', '1');
+                btn.textContent = '安装中...';
+                btn.disabled = true;
+                shell.wslInstallNode();
+              }
+            });
+          });
+          body.querySelectorAll('.manual-toggle').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var key = btn.getAttribute('data-manual');
+              var target = document.getElementById('manual-' + key);
+              if (!target) return;
+              var open = target.hidden;
+              target.hidden = !open;
+              btn.classList.toggle('open', open);
+              btn.querySelector('.mk').textContent = open ? '▼' : '▶';
+            });
+          });
+          // Accordion: clicking a head toggles it; at most one panel open at a time.
+          body.querySelectorAll('.acc-head').forEach(function (head) {
+            head.addEventListener('click', function () {
+              var acc = head.closest('.acc');
+              var key = head.getAttribute('data-acc');
+              var bodyEl = acc.querySelector('[data-acc-body="' + key + '"]');
+              var wasOpen = !bodyEl.hidden;
+              acc.querySelectorAll('.acc-body').forEach(function (b) { b.hidden = true; });
+              acc.querySelectorAll('.acc-head').forEach(function (h) {
+                h.classList.remove('open');
+                h.querySelector('.mk').textContent = '▶';
+              });
+              if (!wasOpen) {
+                bodyEl.hidden = false;
+                head.classList.add('open');
+                head.querySelector('.mk').textContent = '▼';
+              }
+            });
+          });
+        }
+        function statusSegs() {
+          if (!wslLive.wslInstalled) return [{ t: '未检测到 WSL', bad: true }];
+          var segs = [{ t: '已检测到 WSL' + (wslLive.distro ? ' (' + wslLive.distro + ')' : ''), ok: true }];
+          if (!wslLive.node) {
+            segs.push({ t: '未检测到 node', bad: true });
+            return segs;
+          }
+          segs.push({ t: '已检测到 node (' + wslLive.node + ')', ok: true });
+          if (!wslLive.dshVersion) {
+            segs.push({ t: '未检测到 DSH', bad: true });
+            return segs;
+          }
+          segs.push({ t: '已检测到 DSH (' + wslLive.dshVersion + ')', ok: true });
+          segs.push(wslLive.status === 'online' ? { t: '已连接 DSH', ok: true } : { t: '暂未连接 DSH', dim: true });
+          return segs;
+        }
+        el.querySelectorAll('.step').forEach(function (s) {
+          s.addEventListener('click', function () {
+            // Manual step switch: highlight the step + show its body, but do
+            // NOT reset its status line (the live values stay applied).
+            doSetStep(s.getAttribute('data-step'));
+          });
+        });
+        doSetStep(step);
       }
     })();
   </script>

@@ -51,10 +51,14 @@ const {
 } = require('electron');
 const { spawn, spawnSync, execFile } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { probe, probeWithGrace, findPortOwner } = require('./port-probe.js');
 
 const DEFAULT_PORT = 3080;
+// WSL runs its own dsh web on a separate port, so it never clashes with the
+// Windows-side harness on 3080 (or with WSL's own loopback usage).
+const WSL_DEFAULT_PORT = 13080;
 const READY_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 300;
 const WINDOW_TITLE = 'DSH Desktop Pure';
@@ -134,10 +138,16 @@ function spawnDsh(dshBin, port) {
  */
 function pipeChildOutput(child, verbose) {
   let discoveredUrl = null;
+  let tail = '';
+  const remember = (chunk) => {
+    tail += chunk.toString('utf8');
+    if (tail.length > 16384) tail = tail.slice(-16384);
+  };
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
     if (verbose) process.stdout.write(chunk);
+    remember(chunk);
     try {
       const match = /dsh web:\s*(https?:\/\/\S+)/.exec(chunk);
       if (match !== null) discoveredUrl = match[1];
@@ -147,8 +157,9 @@ function pipeChildOutput(child, verbose) {
   });
   child.stderr.on('data', (chunk) => {
     if (verbose) process.stderr.write(chunk);
+    remember(chunk);
   });
-  return { discoveredUrl: () => discoveredUrl };
+  return { discoveredUrl: () => discoveredUrl, tail: () => tail };
 }
 
 /** Kill the spawned tree (taskkill /T on Windows; SIGTERM elsewhere). */
@@ -422,7 +433,7 @@ function makeWslEndpoint() {
     id: 'wsl',
     kind: 'wsl',
     name: 'WSL',
-    port: cfg.port != null ? cfg.port : DEFAULT_PORT,
+    port: WSL_DEFAULT_PORT,
     dshOverride: null, // manual WSL-side dsh path; null = auto-detect
     urlOverride: null, // manual URL (via 编辑); null = derive from WSL IP + port
     wasOnline: false, // connected at least once since this launch (灰点 vs 红点)
@@ -505,14 +516,14 @@ function getEndpoint(id) {
 // --- WSL (Windows only) ----------------------------------------------------
 
 /** Run a `wsl` sub-command without blocking the main process. */
-function wslExec(args, timeoutMs) {
+function wslExec(args, timeoutMs, raw = false) {
   return new Promise((resolve) => {
     try {
-      execFile('wsl', args, { timeout: timeoutMs, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
-        resolve({ err, stdout: stdout || '' });
+      execFile('wsl', args, { timeout: timeoutMs, windowsHide: true, encoding: raw ? null : 'utf8' }, (err, stdout) => {
+        resolve({ err, stdout: raw ? stdout || Buffer.alloc(0) : stdout || '' });
       });
     } catch {
-      resolve({ err: new Error('spawn failed'), stdout: '' });
+      resolve({ err: new Error('spawn failed'), stdout: raw ? Buffer.alloc(0) : '' });
     }
   });
 }
@@ -525,7 +536,33 @@ function wslExec(args, timeoutMs) {
 async function wslProbe() {
   const list = await wslExec(['-l', '-q'], 20_000);
   if (list.err || list.stdout.trim() === '') {
-    return { installed: false, dshBin: null, ip: null };
+    return { installed: false, dshBin: null, ip: null, node: null, npm: null, distro: null, dshVersion: null };
+  }
+  // Default distribution name (the line marked `*` in `wsl -l -v`; else the
+  // first non-header line). `wsl -l` emits UTF-16LE, so read it raw + decode.
+  let distro = null;
+  {
+    const lv = await wslExec(['-l', '-v'], 20_000, true);
+    if (!lv.err && lv.stdout) {
+      const text = Buffer.isBuffer(lv.stdout) ? lv.stdout.toString('utf16le') : lv.stdout;
+      const lvLines = text.split('\n');
+      for (const line of lvLines) {
+        const t = line.trim();
+        if (t.startsWith('*')) {
+          distro = t.replace(/^[\*\s]+/, '').split(/\s+/)[0] || null;
+          break;
+        }
+      }
+      if (!distro) {
+        for (const line of lvLines) {
+          const t = line.trim().replace(/^\*+/, '');
+          if (t && !/^name/i.test(t)) {
+            distro = t.split(/\s+/)[0];
+            break;
+          }
+        }
+      }
+    }
   }
   let ip = null;
   const ipRes = await wslExec(['-e', 'hostname', '-I'], 20_000);
@@ -544,83 +581,271 @@ async function wslProbe() {
     'echo "$p"'
   ].join('; ');
   let dshBin = null;
-  const dshRes = await wslExec(['-e', 'bash', '-lc', detect], 25_000);
+  // `-ic` (interactive) so the login-shell .bashrc is sourced — that is where
+  // nvm / volta / asdf put their shims on PATH. `-lc` alone would miss them.
+  const dshRes = await wslExec(['-e', 'bash', '-ic', detect], 25_000);
   if (!dshRes.err) {
     const lines = dshRes.stdout.trim().split('\n');
     const last = lines[lines.length - 1] || '';
     if (last.startsWith('/')) dshBin = last;
   }
-  return { installed: true, dshBin, ip };
+  // dsh version (only when a dsh binary was actually found).
+  let dshVersion = null;
+  if (dshBin) {
+    const vRes = await wslExec(
+      ['-e', 'bash', '-lc', `exec "${dshBin}" --version 2>/dev/null | tail -n 1`],
+      15_000
+    );
+    if (!vRes.err) dshVersion = vRes.stdout.trim().split('\n').pop() || null;
+  }
+  // Detect a REAL Linux-side Node.js / npm inside the distro (prerequisite for
+  // installing dsh). WSL merges the Windows PATH, so `command -v` can resolve
+  // /mnt/c/... (Windows) binaries — reject those, exactly like the dsh check.
+  let node = null;
+  let npm = null;
+  const nodeRes = await wslExec(
+    [
+      '-e',
+      'bash',
+      '-ic',
+      [
+        'n=$(command -v node 2>/dev/null)',
+        "case \"$n\" in /mnt/*|'') n='' ;; esac",
+        'if [ -n "$n" ]; then n=$("$n" --version 2>/dev/null || true); fi',
+        'm=$(command -v npm 2>/dev/null)',
+        "case \"$m\" in /mnt/*|'') m='' ;; esac",
+        'if [ -n "$m" ]; then m=$("$m" --version 2>/dev/null || true); fi',
+        'printf "NODE=%s\\nNPM=%s\\n" "$n" "$m"'
+      ].join('; ')
+    ],
+    15_000
+  );
+  if (!nodeRes.err) {
+    const mn = /NODE=(.*)/.exec(nodeRes.stdout);
+    const mm = /NPM=(.*)/.exec(nodeRes.stdout);
+    if (mn && mn[1].trim()) node = mn[1].trim();
+    if (mm && mm[1].trim()) npm = mm[1].trim();
+  }
+  return { installed: true, dshBin, ip, node, npm, distro, dshVersion };
 }
 
-/** Spawn dsh web INSIDE the default WSL distribution (wsl.exe stays attached). */
-function spawnWslDsh(dshBin, ip, port) {
-  const inner = `exec "${dshBin}" web --no-open --host ${ip} --port ${port} --trusted-host ${ip}`;
-  return spawn('wsl', ['-e', 'bash', '-lc', inner], {
+/** Spawn dsh web INSIDE the default WSL distribution (wsl.exe stays attached).
+ *  dsh web binds the distro's loopback; the Windows side reaches it through
+ *  WSL2 localhost-forwarding (127.0.0.1:<port>), so no --host is needed.
+ *  `-ic` sources .bashrc so nvm/volta node is on PATH for dsh's shebang. */
+function spawnWslDsh(dshBin, port) {
+  const inner = `exec "${dshBin}" web --no-open --port ${port}`;
+  return spawn('wsl', ['-e', 'bash', '-ic', inner], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
   });
 }
 
+function runWslScript(script, timeoutMs, user = null) {
+  const args = user ? ['-u', user, '-e', 'bash', '-lc', script] : ['-e', 'bash', '-lc', script];
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn('wsl', args, {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    } catch (err) {
+      resolve({ ok: false, err, out: '' });
+      return;
+    }
+    const timer = setTimeout(() => {
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      resolve({ ok: false, err: new Error('timeout'), out });
+    }, timeoutMs);
+    child.stdout.on('data', (d) => {
+      out += d.toString('utf8');
+      if (out.length > 16384) out = out.slice(-16384);
+    });
+    child.stderr.on('data', (d) => {
+      out += d.toString('utf8');
+      if (out.length > 16384) out = out.slice(-16384);
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, err, out });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, code, out });
+    });
+  });
+}
+
+async function recoverWslDshEarlyExit(cfg, ep, dsh, port, output) {
+  const portSafe = String(port || '').replace(/[^\d]/g, '') || '13080';
+  console.log('[wsl-recover] dsh web early exit; cleaning stale WSL dsh web and re-probing');
+  await runWslScript(
+    `pkill -f "dsh web --no-open --port ${portSafe}" 2>/dev/null || true; sleep 1; true`,
+    15_000
+  );
+  const probe = await wslProbe();
+  ep.wsl = probe;
+  console.log('[wsl-recover] reprobe after early exit:', JSON.stringify(probe));
+  const freshDsh = ep.dshOverride || probe.dshBin || dsh;
+  if (!probe.dshBin && !ep.dshOverride) {
+    console.log('[wsl-recover] dsh missing; reinstalling to user npm prefix');
+    await runWslScript(
+      [
+        'export npm_config_prefix="$HOME/.local/share/.npm-global"',
+        'mkdir -p "$npm_config_prefix/bin" "$npm_config_prefix/lib/node_modules"',
+        'npm install -g @deepseek-ai/dsh --loglevel=verbose 2>&1 | tee "$HOME/dsh-install-dsh.log"; exit ${PIPESTATUS[0]}'
+      ].join('; '),
+      5 * 60_000
+    );
+    const probe2 = await wslProbe();
+    ep.wsl = probe2;
+    return ep.dshOverride || probe2.dshBin || freshDsh;
+  }
+  const nodeMajor = parseInt(String(probe.node || '').replace(/^v/, ''), 10);
+  if (Number.isFinite(nodeMajor) && nodeMajor < 22) {
+    console.log(`[wsl-recover] Node ${probe.node} detected; upgrading to Node 22`);
+    await runWslScript(
+      [
+        'set -e',
+        'export DEBIAN_FRONTEND=noninteractive',
+        'if command -v apt-get >/dev/null 2>&1; then',
+        '  if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl ca-certificates; fi',
+        '  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
+        '  apt-get install -y nodejs',
+        'elif command -v dnf >/dev/null 2>&1; then',
+        '  curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
+        '  dnf install -y nodejs',
+        'elif command -v yum >/dev/null 2>&1; then',
+        '  curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
+        '  yum install -y nodejs',
+        'fi',
+        'node --version && npm --version'
+      ].join('\n'),
+      5 * 60_000,
+      'root'
+    );
+    const probe3 = await wslProbe();
+    ep.wsl = probe3;
+    console.log('[wsl-recover] reprobe after Node upgrade:', JSON.stringify(probe3));
+  }
+  return ep.dshOverride || probe.dshBin || freshDsh;
+}
+
 /**
- * Resolve the WSL dsh web: reuse an instance already serving on the WSL IP,
- * otherwise spawn one. The spawn binds to the distro's eth0 IP (not 127.0.0.1,
- * which Windows could not reach under WSL2) and registers that IP with dsh's
- * /api browser-trust fence via --trusted-host, so the window's Host header
- * passes the fence.
+ * Resolve the WSL dsh web: reuse an instance already serving on 127.0.0.1
+ * (reachable from Windows via WSL2 localhost-forwarding), otherwise spawn
+ * `dsh web --no-open --port <port>` inside the distro.
  */
 async function resolveWslServer(cfg, ep) {
   const info = ep.wsl;
   if (!info || !info.installed) throw new Error('未检测到 WSL（请安装 WSL 与一个默认发行版）');
-  const dsh = ep.dshOverride || info.dshBin;
-  if (!dsh) throw new Error('WSL 内未检测到 dsh。请先在 WSL 中执行：npm install -g @deepseek-ai/dsh，或在「编辑」中手动指定 dsh 路径');
   const port = ep.port != null ? ep.port : cfg.port;
-  const ip = info.ip;
   // An explicit endpoint URL (via 编辑) is probed first and reused when it
-  // answers; spawning still binds the WSL IP so the window can reach it.
-  const probeUrl = ep.urlOverride || `http://${ip}:${port}`;
+  // answers; otherwise we reach the distro through 127.0.0.1 (WSL2 forwards
+  // the Windows loopback into it).
+  const probeUrl = ep.urlOverride || `http://127.0.0.1:${port}`;
   const status = await probeWithGrace(probeUrl);
   if (status === 'harness') return { url: probeUrl, child: null };
   if (status !== 'free') {
     throw new Error(`端口 ${port} 已被占用（请在 WSL 终端执行 lsof -i :${port} 查看）`);
   }
-  const fixedUrl = `http://${ip}:${port}`;
-  const child = spawnWslDsh(dsh, ip, port);
-  let spawnError = null;
-  child.on('error', (err) => {
-    spawnError = err;
-  });
-  const urlSource = pipeChildOutput(child, cfg.verbose);
-  try {
-    // WSL cold start (booting the distro) is slower than a local spawn.
-    const readyUrl = await waitForServer(fixedUrl, urlSource.discoveredUrl, child, READY_TIMEOUT_MS + 60_000);
-    if (readyUrl === null) {
-      throw new Error(`WSL 内的 dsh web 未能在 ${READY_TIMEOUT_MS / 1000 + 60} 秒内就绪`);
+  let dsh = ep.dshOverride || info.dshBin;
+  if (!dsh) throw new Error('WSL 内未检测到 dsh。请先在 WSL 中执行：npm install -g @deepseek-ai/dsh，或在「编辑」中手动指定 dsh 路径');
+  const fixedUrl = `http://127.0.0.1:${port}`;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const child = spawnWslDsh(dsh, port);
+    let spawnError = null;
+    child.on('error', (err) => {
+      spawnError = err;
+    });
+    const urlSource = pipeChildOutput(child, cfg.verbose);
+    try {
+      // WSL cold start (booting the distro) is slower than a local spawn.
+      const readyUrl = await waitForServer(fixedUrl, urlSource.discoveredUrl, child, READY_TIMEOUT_MS + 60_000);
+      if (readyUrl === null) {
+        throw new Error(`WSL 内的 dsh web 未能在 ${READY_TIMEOUT_MS / 1000 + 60} 秒内就绪`);
+      }
+      return { url: readyUrl, child };
+    } catch (err) {
+      killChild(child);
+      if (spawnError !== null && spawnError.code === 'ENOENT') {
+        throw new Error('无法调用 wsl.exe（WSL 未安装或不可用）');
+      }
+      const output = urlSource.tail ? urlSource.tail() : '';
+      const earlyExit = /exited early/.test(String(err && err.message));
+      if (earlyExit && attempt === 1) {
+        console.log('[wsl-recover] initial dsh web output tail:\n' + output.slice(-4000));
+        dsh = await recoverWslDshEarlyExit(cfg, ep, dsh, port, output);
+        continue;
+      }
+      throw err;
     }
-    return { url: readyUrl, child };
-  } catch (err) {
-    killChild(child);
-    if (spawnError !== null && spawnError.code === 'ENOENT') {
-      throw new Error('无法调用 wsl.exe（WSL 未安装或不可用）');
-    }
-    throw err;
   }
 }
 
-/** Detect the WSL endpoint once at startup (Windows only). */
-async function detectWslEndpoint() {
+/**
+ * Detect the WSL endpoint (at startup / on user action / periodically).
+ * `kind`:
+ *   'first'   — 首次检测: the WSL guide page shows 加载中 during the probe and
+ *               lands on the stuck step when it finishes (step lands here).
+ *   'manual'  — 手动检测: the user clicked 「重新检测」— the step may re-land.
+ *   'auto'    — background re-detection: updates the dot / detail only and
+ *               NEVER moves the step the user is currently reading.
+ */
+let wslProbeSeq = 0; // monotonically increasing probe-generation counter
+/**
+ * Detect the WSL endpoint (at startup / on user action / periodically).
+ * `kind`:
+ *   'first'   — 首次检测: the WSL guide page shows 加载中 during the probe and
+ *               lands on the stuck step when it finishes (step lands here).
+ *   'manual'  — 手动检测: the user clicked 「重新检测」— the step may re-land.
+ *   'auto'    — background re-detection: updates the dot / detail only and
+ *               NEVER moves the step the user is currently reading.
+ * Probes never block each other; a newer probe's generation (wslProbeSeq)
+ * supersedes an older one, whose stale result is discarded.
+ */
+async function detectWslEndpoint(kind) {
   const ep = getEndpoint('wsl');
   if (ep === null) return;
-  ep.status = 'starting';
-  ep.detail = '正在检测 WSL…';
-  pushPureInfo();
+  const my = ++wslProbeSeq;
+  const isAuto = kind === 'auto';
+  if (!isAuto) {
+    ep.status = 'starting';
+    ep.detail = '正在检测 WSL…';
+  }
+  ep._wslLastDetectKind = isAuto ? 'auto' : kind; // 'first' / 'manual' / 'auto'
+  ep._wslDetectInFlight = true;
+  pushWslStatus(ep);
+  let info;
   try {
-    ep.wsl = await wslProbe();
-    if (!ep.wsl.installed) {
+    info = await wslProbe();
+  } catch {
+    ep._wslDetectInFlight = false;
+    if (my !== wslProbeSeq) return; // superseded
+    ep.status = 'error';
+    ep.detail = 'WSL 检测失败';
+    pushWslStatus(ep);
+    pushPureInfo();
+    setStatus({});
+    return;
+  }
+  if (my !== wslProbeSeq) return; // superseded (a newer probe started after)
+  ep._wslDetectInFlight = false;
+  ep.wsl = info;
+  console.log('[wsl-probe]', JSON.stringify(info));
+  if (!isAuto) {
+    // Status + dot transitions happen only on first / manual detection.
+    if (!info.installed) {
       // WSL itself is missing (environment problem): error, re-detect later.
       ep.status = 'error';
       ep.detail = '未检测到 WSL';
-    } else if (!ep.wsl.dshBin && !ep.dshOverride) {
+    } else if (!info.node) {
+      // WSL is fine but Node.js is missing inside it: gray (unknown).
+      ep.status = 'unknown';
+      ep.detail = 'WSL 内未安装 Node.js';
+    } else if (!info.dshBin && !ep.dshOverride) {
       // WSL is fine but dsh is not installed there: never connected → gray
       // (unknown), with the hint kept in detail.
       ep.status = 'unknown';
@@ -629,12 +854,34 @@ async function detectWslEndpoint() {
       ep.status = 'unknown';
       ep.detail = '';
     }
-  } catch {
-    ep.status = 'error';
-    ep.detail = 'WSL 检测失败';
   }
+  pushWslStatus(ep);
   pushPureInfo();
   setStatus({});
+  // 首次 / 手动检测结束 → 把引导页（重新）加载为带最新状态的 URL，落到
+  // 卡住的步骤；自动后台检测不触碰该页（用户正在阅读的步骤保持不变，仅
+  // 圆点 / 详情 / 状态栏经 live push 更新）。
+  if (!isAuto) {
+    const v = appState.views['wsl'];
+    if (
+      appState.view === 'web' &&
+      appState.currentPage === 'wsl' &&
+      ep.status !== 'online' &&
+      v !== null &&
+      !v.webContents.isDestroyed()
+    ) {
+      v.webContents.loadURL(wslRouterUrl(ep));
+    }
+  }
+  // 兜底：loadURL 是程序化导航，页面脚本完成渲染的时间不确定（快速重载 /
+  // 首次导航 / 磁盘缓存）。检测结束后延迟一拍再推一次完整状态（kind 为
+  // 首次/手动，携带最新 wsl 探测结果）：此时页面若已渲染完成 → 原位落步；
+  // 若还没渲染完 → 页面脚本读取推送值作为初始状态，渲染出来就是新的。
+  if (!isAuto) {
+    setTimeout(() => {
+      pushWslStatus(getEndpoint('wsl'));
+    }, 600);
+  }
 }
 
 /** Keep endpoint status dots fresh (5 s cadence; cheap probes only). */
@@ -649,15 +896,17 @@ async function tickEndpoints() {
         ep.wasOnline = true;
         continue;
       }
-      // WSL endpoint in an error state (e.g. dsh not installed): re-detect
-      // periodically so the endpoint recovers on its own once dsh is installed.
+      // WSL endpoint whose last detection found a problem: re-detect in the
+      // BACKGROUND (kind 'auto' — never re-lands the guide page's step; only
+      // the dot / detail / status bar update) so the endpoint recovers on its
+      // own once WSL / dsh is installed.
       if (
         ep.kind === 'wsl' &&
-        ep.status === 'error' &&
-        Date.now() - (ep._wslRetryAt || 0) > 30_000
+        (ep.status === 'error' || ep.status === 'unknown') &&
+        Date.now() - (ep._wslRetryAt || 0) > 60_000
       ) {
         ep._wslRetryAt = Date.now();
-        detectWslEndpoint().catch(() => {});
+        detectWslEndpoint('auto').catch(() => {});
         continue;
       }
       // Nothing connected yet: probe the address the CURRENT settings derive
@@ -667,7 +916,6 @@ async function tickEndpoints() {
       if (target === null) {
         if (ep.urlOverride) target = ep.urlOverride;
         else if (ep.kind === 'custom') continue;
-        else if (ep.kind === 'wsl' && ep.wsl && ep.wsl.ip) target = `http://${ep.wsl.ip}:${ep.port}`;
         else target = `http://127.0.0.1:${ep.port}`;
       }
       const st = await probeWithGrace(target);
@@ -679,13 +927,27 @@ async function tickEndpoints() {
         // 但失败）一律保持灰（unknown）。
         if (ep.wasOnline) ep.status = 'offline';
         else ep.status = 'unknown';
-        // The server we connected to went away: clear the displayed URL.
+        // The server we connected to went away: clear the displayed URL and
+        // show the in-page 已断开 component (the window STAYS on this page —
+        // the user retries from there; only 重启 / 编辑 / 重置 take the view
+        // back to the shell page).
         if (st === 'free' && appState.displayEndpoint === ep.id && appState.url === ep.url) {
           appState.url = null;
           appState.child = null;
           ep.url = ep.kind === 'custom' ? ep.url : null; // custom keeps its address
-          if (ep.kind !== 'custom') appState.displayEndpoint = null;
-          enterPureView(`${ep.name} 的 dsh web 已离线`);
+          appState.displayEndpoint = ep.id;
+          layout();
+          const v = appState.views[ep.id];
+          if (v && !v.webContents.isDestroyed()) {
+            if (ep.kind === 'wsl') {
+              // Stay on the setup guide: the 连接 step flips to 已断开 via a
+              // live push — no page reload (the user's current step is kept).
+              pushWslStatus(ep);
+            } else {
+              v.webContents.loadURL(routerUrl(ep.id, 'offline', ep.name));
+            }
+          }
+          setStatus({ reason: `${ep.name} 的 dsh web 已离线` });
         }
       }
     }
@@ -822,6 +1084,10 @@ function setThemeSource(source) {
   }
   persistTheme(source);
   if (win !== null && !win.isDestroyed()) win.setBackgroundColor(currentWindowBg());
+  // Keep every view's background in sync with the new theme (pre-paint color).
+  for (const v of Object.values(appState.views)) {
+    if (!v.webContents.isDestroyed()) v.setBackgroundColor(currentWindowBg());
+  }
   // If a menu is open, refresh it so the theme radio group reflects the change.
   if (openMenu !== null) openMenuAt(openMenu, currentMenuLeft);
   // Keep the Pure page's "current theme" label in sync with the new theme.
@@ -922,6 +1188,10 @@ function getEndpointView(epId) {
       webSecurity: true
     }
   });
+  // Theme-colored background: before the first document paints (and on a
+  // cross-URL navigation) the view shows the shell's theme color instead of
+  // a white flash; re-synced on every theme change.
+  v.setBackgroundColor(currentWindowBg());
   hardenWebContents(v.webContents);
   v.webContents.on('page-title-updated', (event) => {
     event.preventDefault();
@@ -930,13 +1200,20 @@ function getEndpointView(epId) {
   v.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
     if (errorCode === -3) return;
     if (!validatedURL || validatedURL.startsWith('file://') || validatedURL === 'about:blank') return;
+    // Only the endpoint's LIVE backend URL may trigger the in-page error /
+    // offline component. While the router page itself (file://) is showing
+    // (加载中 / 加载失败), or while the view is loading about:blank after a
+    // failed restart, the component is already up — do NOT re-navigate (that
+    // would swap in the shell page).
+    if (!epHostMatched(validatedURL, epId)) return;
     if (appState.view !== 'web' || appState.currentPage !== epId) return;
     const ep = getEndpoint(epId);
     const name = ep ? ep.name : '';
     const detail = errorDescription || '连接失败';
     if (ep) { ep.status = 'offline'; ep.detail = detail; }
     appState.url = null;
-    v.webContents.loadURL(routerUrl(epId, 'error', name, detail));
+    // WSL gets its setup-guide page; everything else the generic error page.
+    v.webContents.loadURL(ep && ep.kind === 'wsl' ? wslRouterUrl(ep) : routerUrl(epId, 'error', name, detail));
     setStatus({ reason: `连接断开：${detail}` });
     pushPureInfo();
   });
@@ -1017,6 +1294,7 @@ function createWindow() {
       webSecurity: true
     }
   });
+  pureView.setBackgroundColor(currentWindowBg());
   // Timestamped query busts Electron's file:// disk cache so layout/theme edits
   // to pure.html are always picked up on (re)launch.
   pureView.webContents.loadFile(path.join(__dirname, 'pure.html'), {
@@ -1094,41 +1372,32 @@ function createWindow() {
 }
 
 /**
- * Navigate (or re-navigate) the dsh web view to a URL. A CROSS-URL navigation
- * blanks the view (a fresh harness app booted from scratch), so fade the view
- * back in over ~120 ms — reads as a smooth page transition, not a white flash.
+ * Navigate (or re-navigate) the dsh web view to a URL.
+ * The view's background is the shell's theme bg (set at creation / theme
+ * change), so a fresh page transition shows the theme color, never a white
+ * flash — no CSS fade is needed (insertCSS on file:// / about:blank silently
+ * fails and would leave a stuck `opacity: 0` = permanent white).
  */
-let fadeTimer = null;
-function fadeWebViewIn() {
-  if (webView === null || webView.webContents.isDestroyed()) return;
-  if (fadeTimer !== null) clearInterval(fadeTimer);
-  let alpha = 0;
-  webView.webContents.insertCSS('html { opacity: 0; }').catch(() => {});
-  fadeTimer = setInterval(() => {
-    alpha += 0.34;
-    if (webView === null || webView.webContents.isDestroyed()) {
-      clearInterval(fadeTimer);
-      fadeTimer = null;
-      return;
-    }
-    if (alpha >= 1) {
-      alpha = 1;
-      clearInterval(fadeTimer);
-      fadeTimer = null;
-    }
-    webView.webContents
-      .insertCSS(`html { opacity: ${alpha}; transition: opacity 60ms linear; }`, {
-        key: 'dsh-fade'
-      })
-      .catch(() => {});
-  }, 60);
+
+/** True when two URLs share protocol+host+port (path/query/hash ignored). */
+function sameOrigin(a, b) {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
 }
 
-function loadWeb(url, { fade = false } = {}) {
+function loadWeb(url) {
   if (webView === null || webView.webContents.isDestroyed()) return;
-  if (fade && webView.webContents.getURL() !== url) fadeWebViewIn();
   webView.webContents.loadURL(url);
 }
+
+/**
+ * Navigate the given endpoint's view directly (independent of which view is
+ * currently on-screen). The router page is a file:// URL — always allowed.
+ */
+
 
 /**
  * Show the theme-aware loading overlay (a dedicated WebContentsView) while dsh
@@ -1155,7 +1424,7 @@ function hideLoading() {}
 /** Show the dsh web view without re-navigating (preserves its session). */
 function showWebOnly() {
   appState.view = 'web';
-  if (appState.url !== null) appState.currentPage = appState.displayEndpoint || 'pure';
+  if (appState.url !== null) appState.currentPage = appState.displayEndpoint || appState.currentPage;
   layout();
   setStatus({});
   refreshDshMenu();
@@ -1170,11 +1439,126 @@ function enterPureView(reason) {
   refreshDshMenu();
 }
 
+/**
+ * True when `rawUrl` points at the given endpoint's LIVE backend — i.e. not
+ * the in-shell router page (file://), not about:blank, and (for a non-custom
+ * endpoint) matching the host:port the endpoint's address derives to. Used to
+ * decide whether a load failure is a real backend failure worth the in-page
+ * error component, versus the router page's own (already-handled) lifecycle.
+ */
+function epHostMatched(rawUrl, epId) {
+  try {
+    const u = new URL(rawUrl);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    const ep = getEndpoint(epId);
+    if (ep === null) return false;
+    if (ep.kind === 'custom') return u.host === new URL(ep.url).host;
+    const derived = new URL(ep.urlOverride || `http://127.0.0.1:${ep.port}`);
+    return u.host === derived.host;
+  } catch {
+    return false;
+  }
+}
+
 /** Build the in-shell router page URL for an endpoint (loading / error / offline). */
 function routerUrl(epId, status, name, detail) {
   const params = new URLSearchParams({ ep: epId || '', status: status || 'starting' });
   if (name) params.set('name', name);
   if (detail) params.set('detail', detail);
+  return 'file://' + path.join(__dirname, 'router.html') + '?' + params.toString();
+}
+
+/**
+ * Which step a WSL endpoint is stuck at:
+ *   install-wsl  → no WSL distribution detected
+ *   install-node → WSL is fine but Node.js is missing inside it
+ *   install-dsh  → Node.js is fine but dsh is not installed inside it
+ *   connect      → all present; the failure is in the connect phase
+ */
+function wslStep(ep) {
+  if (!ep.wsl || !ep.wsl.installed) return 'install-wsl';
+  if (!ep.wsl.node) return 'install-node';
+  if (!ep.wsl.dshBin && !ep.dshOverride) return 'install-dsh';
+  return 'connect';
+}
+
+/**
+ * Push the current WSL endpoint state to its setup-guide page (main →
+ * renderer, live): the page keeps the step the user is reading and only
+ * updates its status line / status bar in place. `kind` is 'first' /
+ * 'manual' / 'auto' — 'auto' must never move the step.
+ */
+function pushWslStatus(ep) {
+  if (appState.view !== 'web' || appState.currentPage !== 'wsl') return;
+  const v = appState.views['wsl'];
+  if (v === null || v.webContents.isDestroyed()) return;
+  v.webContents.send('wsl:status', {
+    kind: ep._wslLastDetectKind || 'auto',
+    status: ep.status,
+    detail: ep.detail || '',
+    wslInstalled: !!(ep.wsl && ep.wsl.installed),
+    dshPath: (ep.wsl && ep.wsl.dshBin) || ep.dshOverride || '',
+    node: (ep.wsl && ep.wsl.node) || '',
+    npm: (ep.wsl && ep.wsl.npm) || '',
+    distro: (ep.wsl && ep.wsl.distro) || '',
+    dshVersion: (ep.wsl && ep.wsl.dshVersion) || '',
+    port: String(ep.port != null ? ep.port : (appState.cfg ? appState.cfg.port : 3080))
+  });
+}
+
+function pushWslInstallProgress(step, payload = {}) {
+  if (appState.view !== 'web' || appState.currentPage !== 'wsl') return;
+  const v = appState.views['wsl'];
+  if (v === null || v.webContents.isDestroyed()) return;
+  v.webContents.send('wsl:install-progress', Object.assign({ step: step }, payload));
+}
+
+function parsePercent(text) {
+  if (typeof text !== 'string') return null;
+  const matches = text.match(/\b(\d{1,3})\b\s*%/g);
+  if (!matches) return null;
+  const last = matches[matches.length - 1];
+  const n = parseInt(last, 10);
+  if (Number.isNaN(n)) return null;
+  return Math.max(0, Math.min(100, n));
+}
+
+function lastMeaningfulLine(text) {
+  if (typeof text !== 'string') return '';
+  const lines = text.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line !== '') return line.slice(0, 120);
+  }
+  return '';
+}
+
+/**
+ * The WSL setup-guide router page: a three-step walkthrough (安装 WSL /
+ * 安装 DSH / 连接 WSL DSH) that lands on the step the endpoint is stuck at.
+ * Carries the probe summary so the page can show live status.
+ */
+function wslRouterUrl(ep) {
+  // Timestamp forces a fresh load every time: file:// URLs with identical
+  // params would otherwise be cache hits, and a cached (stale-param) page
+  // would render an outdated step / status.
+  const params = new URLSearchParams({
+    ep: ep.id,
+    kind: 'wsl',
+    status: ep.status || 'unknown',
+    name: ep.name,
+    step: wslStep(ep),
+    wslInstalled: String(!!(ep.wsl && ep.wsl.installed)),
+    dshPath: (ep.wsl && ep.wsl.dshBin) || ep.dshOverride || '',
+    wslIp: '127.0.0.1',
+    port: String(ep.port != null ? ep.port : (appState.cfg ? appState.cfg.port : 3080)),
+    node: (ep.wsl && ep.wsl.node) || '',
+    npm: (ep.wsl && ep.wsl.npm) || '',
+    distro: (ep.wsl && ep.wsl.distro) || '',
+    dshVersion: (ep.wsl && ep.wsl.dshVersion) || '',
+    detail: ep.detail || '',
+    v: String(Date.now())
+  });
   return 'file://' + path.join(__dirname, 'router.html') + '?' + params.toString();
 }
 
@@ -1206,10 +1590,7 @@ async function connectEndpoint(id) {
     const target =
       ep.kind === 'custom'
         ? ep.url
-        : ep.urlOverride ||
-          (ep.kind === 'wsl' && ep.wsl && ep.wsl.ip
-            ? `http://${ep.wsl.ip}:${ep.port}`
-            : `http://127.0.0.1:${ep.port}`);
+        : ep.urlOverride || `http://127.0.0.1:${ep.port}`;
     if (target) targetHost = new URL(target).host;
   } catch {
     /* unparseable target → no shortcut */
@@ -1259,8 +1640,16 @@ async function connectEndpoint(id) {
     getEndpointView(ep.id); // ensure the view exists
     appState.url = ep.url;
     appState.displayEndpoint = ep.id;
-    layout();
-    loadWeb(ep.url, { fade: true });
+    layout(); // webView is now this endpoint's own view
+    // If this view is ALREADY showing the same backend (same origin), bring it
+    // on-screen as-is — do NOT re-navigate, so its session/state is preserved.
+    // (First visit / still on the router page / blank → sameOrigin false → we
+    //  do loadWeb.)
+    const wc =
+      webView !== null && !webView.webContents.isDestroyed() ? webView.webContents : null;
+    if (wc === null || !sameOrigin(wc.getURL(), ep.url)) {
+      loadWeb(ep.url);
+    }
     setStatus({});
     pushPureInfo();
     refreshDshMenu();
@@ -1270,14 +1659,20 @@ async function connectEndpoint(id) {
   // ① Enter the ROUTER page immediately (in-shell, loading component).
   //    The backend connects in parallel; on success we jump to the real
   //    dsh web URL, on failure the router shows the error component.
+  //    WSL: the router page's 加载中 runs the FIRST detection, which lands
+  //    the three-step guide on the stuck step when it finishes.
   getEndpointView(ep.id); // ensure the view exists
   ep.status = 'starting';
   ep.detail = '';
   appState.displayEndpoint = ep.id;
   appState.url = null; // showing the router page, not a backend
   layout();
-  console.log(`[connectEndpoint] slow-path: ep=${ep.id} webView=${webView !== null} views=${Object.keys(appState.views).join(',')}`);
-  loadWeb(routerUrl(ep.id, 'starting', ep.name));
+  if (ep.kind === 'wsl') {
+    loadWeb(wslRouterUrl(ep));
+    detectWslEndpoint('first').catch(() => {});
+  } else {
+    loadWeb(routerUrl(ep.id, 'starting', ep.name));
+  }
   pushPureInfo();
   setStatus({});
 
@@ -1323,7 +1718,7 @@ async function connectEndpoint(id) {
       appState.child = child;
       appState.childAlive = child !== null;
       appState.displayEndpoint = ep.id;
-      if (renav) loadWeb(url, { fade: true });
+      if (renav) loadWeb(url);
       setStatus({});
     }
     if (cfg.verbose) {
@@ -1342,7 +1737,9 @@ async function connectEndpoint(id) {
       appState.childAlive = false;
       appState.displayEndpoint = ep.id;
       layout();
-      loadWeb(routerUrl(ep.id, 'error', ep.name, err.message));
+      // WSL shows the setup-guide page (land on the stuck step); others show
+      // the generic error page.
+      loadWeb(ep.kind === 'wsl' ? wslRouterUrl(ep) : routerUrl(ep.id, 'error', ep.name, err.message));
       setStatus({ reason: `无法连接「${ep.name}」：${err.message}` });
     }
     return;
@@ -1402,7 +1799,7 @@ const PURE_CHANGELOG = {
   zh: [
     {
       version: '0.3.0',
-      date: '2026-08-30',
+      date: '2026-09-02',
       sections: [
         {
           title: '新增',
@@ -1474,7 +1871,7 @@ const PURE_CHANGELOG = {
   en: [
     {
       version: '0.3.0',
-      date: '2026-08-30',
+      date: '2026-09-02',
       sections: [
         {
           title: 'Added',
@@ -1936,6 +2333,162 @@ ipcMain.on('pure:restart', (_event, id) => {
   );
 });
 
+/**
+ * WSL setup-guide page → 「重新检测」(manual re-detection; the step MAY
+ * re-land on the stuck step). The guide page itself stays in place: the
+ * 加载中 component is already showing, and the page refreshes when the
+ * detection finishes (inside detectWslEndpoint('manual')).
+ */
+ipcMain.on('router:wsl-recheck', () => {
+  const ep = getEndpoint('wsl');
+  if (ep === null) return;
+  // The user explicitly asked for a fresh check — reset the auto-retry timer;
+  // a newer probe generation supersedes any background auto-detect in flight
+  // (its stale result is discarded inside detectWslEndpoint).
+  ep._wslRetryAt = Date.now();
+  detectWslEndpoint('manual').catch(() => {});
+});
+
+/** WSL setup-guide page → (re)connect the WSL endpoint. */
+ipcMain.on('router:wsl-retry', () => {
+  connectEndpoint('wsl').catch(() => {});
+});
+
+/**
+ * WSL setup-guide page → one-click install dsh inside the distro. Runs in an
+ * interactive shell (so nvm's PATH is loaded), then re-probes and refreshes
+ * the guide. Fire-and-forget; the page updates when the probe lands.
+ */
+ipcMain.on('router:wsl-install-dsh', () => {
+  const cmd = [
+    'export npm_config_prefix="$HOME/.local/share/.npm-global"',
+    'mkdir -p "$npm_config_prefix/bin" "$npm_config_prefix/lib/node_modules"',
+    'npm install -g @deepseek-ai/dsh --loglevel=verbose 2>&1 | tee "$HOME/dsh-install-dsh.log"; exit ${PIPESTATUS[0]}'
+  ].join('; ');
+  const child = spawn('wsl', ['-e', 'bash', '-ic', cmd], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  pushWslInstallProgress('install-dsh', { status: 'running', percent: null, detail: '正在执行 npm install -g @deepseek-ai/dsh…' });
+  let tail = '';
+  let lastPercent = null;
+  const tick = (data, label) => {
+    const text = data.toString('utf8');
+    if (text) console.log(label, text);
+    tail += text;
+    if (tail.length > 8192) tail = tail.slice(-8192);
+    const p = parsePercent(tail);
+    if (p !== null) lastPercent = p;
+    pushWslInstallProgress('install-dsh', { status: 'running', percent: lastPercent, detail: lastMeaningfulLine(tail) || 'npm 正在安装…' });
+  };
+  child.stdout.on('data', (d) => tick(d, '[wsl-install-dsh]'));
+  child.stderr.on('data', (d) => tick(d, '[wsl-install-dsh:err]'));
+  child.on('error', (err) => pushWslInstallProgress('install-dsh', { status: 'error', detail: String((err && err.message) || err) }));
+  child.on('close', () => {
+    pushWslInstallProgress('install-dsh', { status: 'done', percent: 100 });
+    detectWslEndpoint('manual').catch(() => {});
+  });
+});
+
+/**
+ * WSL setup-guide page → request Windows to install WSL. Requires UAC elevation
+ * because `wsl --install` must run as administrator. The elevated PowerShell
+ * window remains visible so the user can follow progress and complete reboot.
+ */
+const WSL_INSTALL_DISTROS = ['Ubuntu-24.04', 'Ubuntu-26.04', 'Ubuntu-22.04'];
+
+ipcMain.on('router:wsl-install-wsl', (_event, rawDistro) => {
+  const distro = WSL_INSTALL_DISTROS.includes(rawDistro) ? rawDistro : 'Ubuntu-24.04';
+  const log = path.join(os.tmpdir(), 'dsh-wsl-install.log');
+  try { fs.rmSync(log, { force: true }); } catch { /* best effort */ }
+  const inner = 'wsl --install -d ' + distro + ' *> "' + log + '"';
+  const ps = [
+    '$ErrorActionPreference="Stop"',
+    'try {',
+    "  $p = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Normal -ArgumentList @('-NoProfile','-Command','" + JSON.stringify(inner) + "') -PassThru",
+    '  $p.WaitForExit()',
+    '} catch { exit 1 }'
+  ].join('; ');
+  const child = spawn('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true });
+  pushWslInstallProgress('install-wsl', { status: 'running', percent: null, detail: '正在请求 Windows 安装 WSL ' + distro + '…', distro });
+  let lastLogLen = 0;
+  const timer = setInterval(() => {
+    let text = '';
+    try { text = fs.readFileSync(log, 'utf8'); } catch { /* file may not exist yet */ }
+    if (text.length > lastLogLen) {
+      const chunk = text.slice(lastLogLen);
+      if (chunk) console.log('[wsl-install-wsl]', chunk);
+      lastLogLen = text.length;
+    } else if (text.length < lastLogLen) {
+      lastLogLen = text.length;
+    }
+    pushWslInstallProgress('install-wsl', { status: 'running', percent: parsePercent(text), detail: lastMeaningfulLine(text) || '正在等待 WSL ' + distro + ' 安装输出…', distro });
+  }, 500);
+  child.stdout.on('data', (d) => console.log('[wsl-install-wsl:wrapper]', d.toString('utf8')));
+  child.stderr.on('data', (d) => console.log('[wsl-install-wsl:wrapper:err]', d.toString('utf8')));
+  child.on('error', (err) => {
+    clearInterval(timer);
+    pushWslInstallProgress('install-wsl', { status: 'error', detail: String((err && err.message) || err), distro });
+  });
+  child.on('close', (code) => {
+    clearInterval(timer);
+    pushWslInstallProgress('install-wsl', { status: code === 0 ? 'done' : 'error', percent: code === 0 ? 100 : null, detail: code === 0 ? '' : 'WSL ' + distro + ' 安装未完成（可能被拒绝或需要重启）', distro });
+    if (code === 0) detectWslEndpoint('manual').catch(() => {});
+  });
+});
+
+/**
+ * WSL setup-guide page → install Node.js inside the default WSL distribution.
+ * Uses the distro root account where available, then re-probes manually so the
+ * guide can move to the next step once Node appears.
+ */
+ipcMain.on('router:wsl-install-node', () => {
+  const script = [
+    'set -e',
+    'export DEBIAN_FRONTEND=noninteractive',
+    'if command -v apt-get >/dev/null 2>&1; then',
+    '  if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl ca-certificates; fi',
+    '  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
+    '  apt-get install -y nodejs',
+    'elif command -v dnf >/dev/null 2>&1; then',
+    '  curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
+    '  dnf install -y nodejs',
+    'elif command -v yum >/dev/null 2>&1; then',
+    '  curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
+    '  yum install -y nodejs',
+    'elif command -v pacman >/dev/null 2>&1; then',
+    '  pacman -Sy --noconfirm nodejs npm',
+    'elif command -v zypper >/dev/null 2>&1; then',
+    '  zypper refresh',
+    '  zypper install -y nodejs nodejs-npm',
+    'fi',
+    'node --version && npm --version'
+  ].join('\n');
+  const child = spawn('wsl', ['-u', 'root', '-e', 'bash', '-lc', script], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let tail = '';
+  let lastPercent = null;
+  const onOutput = (label) => (data) => {
+    const text = data.toString('utf8');
+    if (text) console.log(label, text);
+    tail += text;
+    if (tail.length > 8192) tail = tail.slice(-8192);
+    const p = parsePercent(tail);
+    if (p !== null) lastPercent = p;
+    pushWslInstallProgress('install-node', { status: 'running', percent: lastPercent, detail: lastMeaningfulLine(tail) || '正在安装 Node.js…' });
+  };
+  pushWslInstallProgress('install-node', { status: 'running', percent: null, detail: '正在在 WSL 中安装 Node.js…' });
+  child.stdout.on('data', onOutput('[wsl-install-node]'));
+  child.stderr.on('data', onOutput('[wsl-install-node:err]'));
+  child.on('error', (err) => pushWslInstallProgress('install-node', { status: 'error', detail: String((err && err.message) || err) }));
+  child.on('close', () => {
+    pushWslInstallProgress('install-node', { status: 'done', percent: 100 });
+    detectWslEndpoint('manual').catch(() => {});
+  });
+});
+
 /** Select a DSH Web endpoint in the Pure page's tab bar (no connection yet). */
 ipcMain.on('pure:select-endpoint', (_event, id) => {
   const ep = getEndpoint(typeof id === 'string' ? id : '');
@@ -2090,7 +2643,7 @@ ipcMain.on('pure:reset-endpoint', (_event, id) => {
     ep.urlOverride = null;
   } else {
     ep.name = 'WSL';
-    ep.port = cfg.port != null ? cfg.port : DEFAULT_PORT;
+    ep.port = WSL_DEFAULT_PORT;
     ep.dshOverride = null;
     ep.urlOverride = null;
   }
@@ -2111,7 +2664,13 @@ ipcMain.on('pure:reset-endpoint', (_event, id) => {
   }
   persistEndpoints();
   pushPureInfo();
-  if (ep.kind === 'wsl') detectWslEndpoint().catch(() => {});
+  if (ep.kind === 'wsl') {
+    // Reset = back to defaults; immediately re-resolve + connect so the
+    // endpoint comes back online without another manual 「打开 DSH Web」 click.
+    detectWslEndpoint('manual')
+      .then(() => connectEndpoint('wsl'))
+      .catch(() => {});
+  }
 });
 
 /**
@@ -2128,8 +2687,6 @@ async function probeEndpointOnce(ep) {
     target = ep.urlOverride;
   } else if (ep.url) {
     target = ep.url;
-  } else if (ep.kind === 'wsl' && ep.wsl && ep.wsl.ip) {
-    target = `http://${ep.wsl.ip}:${ep.port}`;
   } else {
     target = `http://127.0.0.1:${ep.port}`;
   }
@@ -2201,14 +2758,14 @@ async function restartServer(epId) {
   if (ep === null || ep.kind === 'custom') return; // view-only endpoints
   restarting = true;
   const port = ep.port != null ? ep.port : cfg.port;
-  const portUrl =
-    ep.kind === 'wsl' && ep.wsl && ep.wsl.ip
-      ? `http://${ep.wsl.ip}:${port}`
-      : `http://127.0.0.1:${port}`;
+  const portUrl = `http://127.0.0.1:${port}`;
   appState.currentPage = ep.id;
-  // Show the theme-aware loading page so the harness area doesn't flash a
+  // Show the router page's 加载中 component so the harness area doesn't flash a
   // Chromium "can't reach this page" error while the old server is killed.
-  showLoading();
+  appState.view = 'web';
+  appState.displayEndpoint = ep.id;
+  loadWeb(routerUrl(ep.id, 'starting', ep.name));
+  layout();
   ep.status = 'starting';
   ep.detail = '';
   pushPureInfo();
@@ -2244,7 +2801,20 @@ async function restartServer(epId) {
         }
       }
       if (!free && ep.kind === 'wsl') {
-        throw new Error(`WSL 内端口 ${port} 仍被占用，请在 WSL 终端手动结束占用进程后重试`);
+        // The port is held by a dsh web inside the distro that isn't our child
+        // (a reused / externally-started one — WSL processes are invisible to
+        // Windows-side tooling). Kill it in the distro, then wait for free.
+        await wslExec(
+          ['-e', 'bash', '-ic', `pkill -f "dsh web --no-open --port ${port}" || true`],
+          10_000
+        );
+        const d3 = Date.now() + 5_000;
+        while (Date.now() < d3 && (await probeWithGrace(portUrl)) !== 'free') {
+          await sleep(300);
+        }
+        if ((await probeWithGrace(portUrl)) !== 'free') {
+          throw new Error(`WSL 内端口 ${port} 仍被占用，请在 WSL 终端手动结束占用进程后重试`);
+        }
       }
     }
     // 4. Spawn a fresh dsh web, then point the web view at it.
@@ -2279,8 +2849,8 @@ async function restartServer(epId) {
     setStatus({});
     refreshDshMenu();
   } catch (err) {
-    // Degrade to the blank web view for that endpoint (non-blocking): the user
-    // can retry from the title bar or the Pure page — never quit the app.
+    // Degrade to the in-page error component for that endpoint (non-blocking):
+    // the user retries from there — never quit the app, never leave the page.
     ep.status = 'error';
     ep.detail = err.message;
     appState.view = 'web';
@@ -2290,7 +2860,7 @@ async function restartServer(epId) {
     appState.child = null;
     appState.childAlive = false;
     hideLoading();
-    loadWeb('about:blank');
+    loadWeb(ep.kind === 'wsl' ? wslRouterUrl(ep) : routerUrl(ep.id, 'error', ep.name, err.message));
     layout();
     setStatus({ reason: `重启「${ep.name}」失败：${err.message}` });
   } finally {
@@ -2336,15 +2906,23 @@ function bindChildExit(child, ep) {
     ep.child = null;
     ep.childAlive = false;
     if (ep.kind !== 'custom') ep.url = null;
-    // The endpoint we are SHOWING died → fall back to the Pure page (which
-    // keeps working without the server). A background endpoint dying only
+    // The endpoint we are SHOWING died → stay ON this page with its 已断开
+    // component (the user retries / restarts from there); only a background
+    // endpoint dying updates its dot. A background endpoint dying only
     // updates its dot — the window stays where it is.
     if (appState.displayEndpoint === ep.id) {
       appState.child = null;
       appState.childAlive = false;
       appState.url = null;
-      appState.displayEndpoint = null;
-      enterPureView(`「${ep.name}」的 dsh web 已退出（${why}）`);
+      ep.status = 'offline';
+      ep.detail = `dsh web 已退出（${why}）`;
+      layout();
+      const v = appState.views[ep.id];
+      if (v && !v.webContents.isDestroyed()) {
+        if (ep.kind === 'wsl') pushWslStatus(ep); // guide stays, status flips live
+        else v.webContents.loadURL(routerUrl(ep.id, 'offline', ep.name));
+      }
+      setStatus({ reason: `「${ep.name}」的 dsh web 已退出（${why}）` });
     } else {
       pushPureInfo();
     }
@@ -2355,9 +2933,7 @@ async function main() {
   // The window appears immediately. Default to the Windows (local) endpoint
   // so the user lands on their primary dsh web on launch.
   createWindow();
-  console.log(`[main] about to connectEndpoint('local') cfg=${appState.cfg !== null}`);
   await connectEndpoint('local');
-  console.log(`[main] connectEndpoint done, currentPage=${appState.currentPage} view=${appState.view} url=${appState.url}`);
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -2387,7 +2963,7 @@ if (!app.requestSingleInstanceLock()) {
     // Multi-endpoint DSH Web: local (always) + WSL (Windows) + user-added
     // remote servers; a light 5 s probe keeps the tab-bar dots fresh.
     initEndpoints(appState.cfg.urlOverride);
-    if (process.platform === 'win32') detectWslEndpoint();
+    if (process.platform === 'win32') detectWslEndpoint('first');
     setInterval(() => {
       tickEndpoints().catch(() => {});
     }, 5_000);
@@ -2424,7 +3000,7 @@ app.on('activate', () => {
     w.focus();
   } else if (appState.url !== null) {
     createWindow();
-    appState.currentPage = appState.displayEndpoint || 'pure';
+    appState.currentPage = appState.displayEndpoint || 'local';
     showWebOnly();
   }
 });

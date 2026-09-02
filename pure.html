@@ -1220,10 +1220,14 @@
                 : '点击「打开 DSH Web」自动复用或启动';
         }
         // Rows
-        if (valUrl) valUrl.textContent = ep && ep.url ? ep.url : '—';
+        if (valUrl) {
+          if (ep && ep.url) valUrl.textContent = ep.url;
+          else if (ep && (ep.kind === 'local' || ep.kind === 'wsl')) valUrl.textContent = '127.0.0.1';
+          else valUrl.textContent = '—';
+        }
         if (valPort) {
           if (ep && (ep.kind === 'local' || ep.kind === 'wsl')) {
-            valPort.textContent = lastInfo && lastInfo.port != null ? String(lastInfo.port) : '—';
+            valPort.textContent = ep.port != null ? String(ep.port) : (lastInfo && lastInfo.port != null ? String(lastInfo.port) : '—');
           } else if (ep && ep.url) {
             try {
               var u = new URL(ep.url);

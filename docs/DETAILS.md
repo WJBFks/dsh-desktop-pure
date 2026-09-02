@@ -9,7 +9,8 @@
 - **生命周期**：`✕` / 「文件 → 最小化到托盘」= 隐藏到托盘（dsh 服务器继续运行）；托盘「退出」或「文件 → 退出」= 真正退出，并清理**自己拉起的** `dsh web` 进程树（Win: `taskkill /T /F`；POSIX: SIGTERM）。
 - **内置 DSH Desktop Pure 页（「桌面端配置」）**：标题栏「文件」左侧的「页面」按钮可下拉切换 **桌面端配置 / DSH Web**。DSH Desktop Pure 是壳自带的独立页面（外观 / DSH Web / 更新日志 / 关于 四个分区，含全屏 / 卡片布局切换；DSH Web 分区为多端点 Tab：Windows 本机 / WSL 自动检测与拉起 `wsl → dsh web --host <WSL IP> --trusted-host <WSL IP>` / 自定义远程地址只读连接，持久化到 `userData/endpoints.json`），参考 DSH Web 设置页风格，支持浅色 / 深色，**完全独立于 dsh web**——服务未启动也不影响它。启动默认进入 DSH Web；若 dsh web 无法就绪则自动回退到该页，**不退出应用**。
 - **复用的服务不归壳管**：复用了已有 `dsh web` 时，壳不持有它的进程句柄，退出时不会杀它（避免误杀你手动启动的实例）。
-- **dsh web 意外退出 / 无法就绪**（仅自己拉起的实例）：自动回退到内置 DSH Desktop Pure 页并提示原因（**不再退出应用**）；可从标题栏「页面」菜单或纯页「打开 DSH Web」重试（重启场景除外——重启期间的退出被识别为有意行为，只换加载页、不退出）。
+- **dsh web 意外退出 / 掉线**（仅自己拉起的实例）：**停留在该端点自己的路由层状态页**（已断开 / 加载失败组件，WSL 端点为三步引导页的状态原位刷新），不再跳转到「桌面端配置」页；标题栏同步提示原因，可从该页直接重试 / 重启（重启期间的退出被识别为有意行为，不退出应用）。仅用户主动操作（「页面」菜单选桌面端配置、编辑 / 重置端点设置）才切回设置页。
+- **WSL 引导页检测纪律**：点击 WSL 页 = 进入路由层「加载中」并运行**首次检测**，检测完成才自动落到卡住的步骤；后台周期检测（60s）**不会移动用户正在阅读的步骤**，只原位刷新各步的状态行 / 底部状态栏；仅点击「我已安装，重新检测」（手动检测）或一键安装完成后的自动复检才会重新落步。
 - **自测**：`npm run selftest` 验证端口策略辅助函数（空闲/占用探测、占用进程 PID + 名称识别；使用 3987 测试端口，不碰 3080）。
 - **测试桩（开发用，不随包发布）**：`tools/fake-dsh.js` / `fake-dsh.cmd` 模拟 `dsh web`（解析 `web --no-open --port N`、打印与真实 dsh 一致的 URL 行、伺服一个「测试桩」页面），`tools/dummy-server.js` 模拟端口占用假服务。配合 `npm start -- --port=3987 --dsh=tools\fake-dsh.cmd` 可在不触碰真实 dsh 数据的情况下验证拉起 / 冲突全流程。
 
@@ -75,9 +76,11 @@ dsh-desktop-pure/
 ├── build/               # 图标：icon-256.png / icon.ico（深色）、icon-white-*（备用）
 ├── assets/              # dsh-whale.svg 官方鲸鱼 logo 素材
 ├── tools/               # make-icon.js（图标生成）/ selftest-port.js（自测）/ fake-dsh.*（测试桩）
+├── .dsh/skills/         # 项目 skill（agent 自动发现）：dsh-electron-dev（开发工作流）、electron-webcontentsview（多视图编排）
 ├── docs/
 │   ├── DETAILS.md       # 本文件（中文）
-│   └── DETAILS.en.md    # 英文版
+│   ├── DETAILS.en.md    # 英文版
+│   └── PITFALLS.md      # 踩坑指南（现象→根因→规避→修复，供人与 agent 查阅）
 ├── CHANGELOG.md         # 更新日志（中文，默认）
 ├── CHANGELOG.en.md      # 更新日志（English）
 ├── LICENSE              # MIT

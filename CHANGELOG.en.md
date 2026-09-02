@@ -8,6 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 
 ---
 
+## [0.3.0] — 2026-09-02
+
+### Added
+
+- **WSL distro selection**: the first WSL setup-guide step now offers three side-by-side choice buttons — `Ubuntu-24.04` (recommended), `Ubuntu-26.04` (latest), and `Ubuntu-22.04` (mature/stable). Each button shows two lines of text; clicking one runs the matching `wsl --install -d <distro>` and locks the other options.
+
+### Changed
+
+- **Endpoint pages (Windows / WSL / custom) no longer jump to the Desktop Settings page** while loading, on load failure, when disconnected, or when the dsh web process exits: they stay on that endpoint's own router-layer state component (loading / error / disconnected) and retry in place. Only explicit user actions (choosing Desktop Settings from the Pages menu, editing / resetting endpoint settings) switch back to the settings page.
+- **WSL setup-guide detection discipline**: the first detection shows a "loading" state (no step pre-highlighted) and lands on the stuck step only when it finishes; background periodic detection (now every 60 s instead of 30 s) **never moves the step the user is reading** — it only refreshes the status line / status bar in place. Only the manual 「我已安装，重新检测」 button re-lands the steps.
+- **WSL setup-guide visual hierarchy**: all four setup steps now include a full-width divider between the step content and the bottom action button. The divider matches the guide card border in color and thickness and reaches both sides of the border.
+- **WSL setup-guide bottom button states**: the bottom “我已安装，重新检测 / 我已启动，重新检测” buttons now use a light-blue background and automatically become non-clickable “已安装 / 已启动” states when the corresponding WSL / Node / DSH / connection readiness check succeeds.
+- **Unified WSL setup-guide step layout**: all four steps now follow “title → description → detection status → automatic install/start (recommended) button → collapsed manual installation section.” The previous command/body text moved into the collapsed manual area; steps 1 and 2 add automatic install requests (WSL via Windows elevation running `wsl --install`, Node via the WSL package manager). The automatic install button occupies its own centered row, shows “安装中...” while running, displays “安装中...（N%）” when a percentage can be parsed from installer output, and becomes a non-clickable “已安装 / 已启动” state once detection succeeds. Installer process output is mirrored to the main-process console to help diagnose failed installs. Automatic DSH installation now uses a user-level npm prefix to avoid global `/usr/lib/node_modules` `EACCES` failures; automatic Node installation now uses Node.js 22 to match the current DSH dependency requirements. A live status line under the automatic install button now shows the installer's last meaningful output line (for example npm's `added N packages in Xs`) so progress is visible in the GUI, not only in the main-process console. If a WSL connection fails with `dsh web exited early`, the shell now cleans stale `dsh web` processes, re-probes WSL, and may automatically reinstall DSH or upgrade to Node 22 before retrying once. DSH automatic / manual installation now uses `npm --loglevel=verbose`; automatic installation also writes the full install log to `~/dsh-install-dsh.log` inside WSL.
+
+### Fixed
+
+- **White-screen on load**: removed the CSS-injection based fade (on `file://` / `about:blank` it silently fails, leaving the content area at `opacity: 0` = a permanent white screen); each view now gets a theme-colored background (`view.setBackgroundColor`), so the gap before a fresh document paints shows the theme color instead of white, and theme switches re-sync all views.
+
+---
+
 ## [0.2.5] — 2026-08-30
 
 ### Added
