@@ -11,6 +11,45 @@ contextBridge.exposeInMainWorld('dshPure', {
   getInfo() {
     return ipcRenderer.invoke('pure:get-info');
   },
+  // Remote repository changelog. The main process fixes the repository and
+  // accepts only zh/en; no arbitrary URL crosses this bridge.
+  getChangelog(language, options) {
+    return ipcRenderer.invoke('pure:get-changelog', language === 'en' ? 'en' : 'zh', {
+      cachedOnly: Boolean(options && options.cachedOnly)
+    });
+  },
+  // GitHub release metadata and a deliberately explicit, system-browser
+  // download hand-off. The main process validates the asset id.
+  checkUpdate() {
+    return ipcRenderer.invoke('pure:check-update');
+  },
+  downloadUpdate(assetId) {
+    return ipcRenderer.invoke('pure:download-update', assetId);
+  },
+  onReleaseUpdate(callback) {
+    ipcRenderer.on('pure:release-update', (_event, data) => {
+      try {
+        callback(data);
+      } catch {
+        /* ignore bad payload */
+      }
+    });
+  },
+  onShowSection(callback) {
+    ipcRenderer.on('pure:show-section', (_event, section) => {
+      try {
+        callback(String(section));
+      } catch {
+        /* ignore bad payload */
+      }
+    });
+  },
+  setStartupPage(page) {
+    return ipcRenderer.invoke('pure:set-startup-page', page === 'local' || page === 'wsl' ? page : 'pure');
+  },
+  chooseStartupPage(page) {
+    return ipcRenderer.invoke('pure:choose-startup-page', page === 'local' || page === 'wsl' ? page : null);
+  },
   // Appearance choice from the Pure page (system / light / dark) — drives the
   // whole shell's theme, exactly like the 视图 → theme menu items.
   setTheme(source) {
@@ -30,8 +69,8 @@ contextBridge.exposeInMainWorld('dshPure', {
     ipcRenderer.send('pure:select-endpoint', String(id));
   },
   // Add a custom remote endpoint (awaitable: resolves { ok, error? }).
-  addEndpoint(name, url) {
-    return ipcRenderer.invoke('pure:add-endpoint', String(name), String(url));
+  addEndpoint(name, url, token) {
+    return ipcRenderer.invoke('pure:add-endpoint', String(name), String(url), typeof token === 'string' ? token : undefined);
   },
   // Remove a custom endpoint (local / WSL are permanent).
   removeEndpoint(id) {
@@ -52,6 +91,9 @@ contextBridge.exposeInMainWorld('dshPure', {
   // Hand a web URL to the system browser (about / repo links).
   openExternal(url) {
     ipcRenderer.send('pure:open-external', String(url));
+  },
+  openEndpointBrowser(id) {
+    return ipcRenderer.invoke('pure:open-endpoint-browser', String(id));
   },
   // "Restart dsh server" from the Pure page (given id, or the displayed one).
   restartServer(id) {

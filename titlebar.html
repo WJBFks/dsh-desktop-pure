@@ -178,6 +178,16 @@
     #wincontrols button[data-ctl="open-browser"] {
       width: 40px;
     }
+    #wincontrols button.update-available {
+      width: 34px;
+      color: #b77900;
+    }
+    #wincontrols button.update-available[hidden] { display: none; }
+    #wincontrols button.update-available:hover { color: #7a5100; }
+    @media (prefers-color-scheme: dark) {
+      #wincontrols button.update-available { color: #fbbf24; }
+      #wincontrols button.update-available:hover { color: #fde68a; }
+    }
     .wc-sep {
       width: 1px;
       height: 16px;
@@ -199,11 +209,14 @@
       <button data-menu="view">视图</button>
       <button data-menu="server">服务器</button>
     </nav>
-    <div id="status" class="no-drag">
+    <div id="status">
       <span id="dot" class="starting"></span>
       <span id="label">启动中…</span>
     </div>
     <div id="wincontrols" class="no-drag">
+      <button id="btnReleaseUpdate" class="update-available" type="button" hidden title="发现新版本" aria-label="发现新版本">
+        <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.8 1.8 21h20.4L12 2.8Zm1 14.4h-2v-2h2v2Zm0-4h-2V8h2v5.2Z"/></svg>
+      </button>
       <button data-ctl="open-browser" title="在浏览器中打开" aria-label="在浏览器中打开">
         <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
           <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
@@ -232,14 +245,44 @@
     (function () {
       var dot = document.getElementById('dot');
       var label = document.getElementById('label');
+      var statusEl = document.getElementById('status');
       var btnMax = document.getElementById('btnMax');
+      var btnReleaseUpdate = document.getElementById('btnReleaseUpdate');
+      var currentStatus = null;
+      var statusHovered = false;
+      var releaseUpdateRevision = -1;
+      var releaseUpdatePayloadSignature = '';
       var MAX_SVG =
         '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
       var RESTORE_SVG =
         '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="2" y="2" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/><path d="M2 2 L2 1 L9 1 L9 8 L8 8" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
 
+      function redactTokenUrl(url) {
+        return String(url).replace(/([?&])([^&#=]*)(=)([^&#]*)/g, function (match, separator, name, equals, value) {
+          var decodedName;
+          try {
+            decodedName = decodeURIComponent(name.replace(/\+/g, ' '));
+          } catch {
+            decodedName = name;
+          }
+          return separator + name + equals + (decodedName.toLowerCase() === 'token' ? '***' : value);
+        });
+      }
+
+      function reportStatusHitbox() {
+        // Keep the hit area at its redacted width. Expanding the URL must not
+        // move the hover boundary and cause reveal/redact flicker.
+        if (!api || statusHovered) return;
+        window.requestAnimationFrame(function () {
+          if (statusHovered) return;
+          var rect = statusEl.getBoundingClientRect();
+          api.reportStatusHitbox({ x: rect.left, y: rect.top, width: rect.width, height: rect.height });
+        });
+      }
+
       function apply(status) {
         if (!status || typeof status !== 'object') return;
+        currentStatus = status;
         var state = status.state || 'offline';
         var page = status.pageName || '';
         var prefix = page ? page + ' · ' : '';
@@ -247,24 +290,61 @@
         if (state === 'pure') {
           // On the shell's own independent 桌面端配置 page.
           label.textContent = '桌面端配置' + (status.reason ? ' · ' + status.reason : '');
+          label.removeAttribute('title');
         } else if (state === 'online') {
           // Reused (not spawned by the shell) → append a marker at the end.
           var reused = status.spawned === false ? '（已复用）' : '';
-          label.textContent = prefix + '已连接' + (status.url ? ' · ' + status.url : '') + reused;
+          var url = status.url ? String(status.url) : '';
+          label.textContent = prefix + '已连接' + (url ? ' · ' + (statusHovered ? url : redactTokenUrl(url)) : '') + reused;
+          // This is a drag region, not a tooltip target: the revealed text is
+          // rendered directly, and old native tooltips must never linger.
+          label.removeAttribute('title');
         } else if (state === 'starting') {
           label.textContent = prefix + '正在连接…';
+          label.removeAttribute('title');
         } else if (state === 'unknown') {
           // Never connected since this launch.
           label.textContent = prefix + '未连接';
+          label.removeAttribute('title');
         } else {
           // Was connected, then dropped (or failed after having run).
           label.textContent = prefix + '已断开';
+          label.removeAttribute('title');
         }
+        reportStatusHitbox();
+      }
+
+      function applyStatusHover(hovered) {
+        var next = Boolean(hovered);
+        if (statusHovered === next) return;
+        statusHovered = next;
+        if (currentStatus) apply(currentStatus);
       }
 
       function applyMaximized(maximized) {
         btnMax.innerHTML = maximized ? RESTORE_SVG : MAX_SVG;
         btnMax.title = maximized ? '还原' : '最大化';
+      }
+
+      function applyReleaseUpdate(payload) {
+        var result = payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'result') ? payload.result : payload;
+        var revision = payload && Number.isSafeInteger(payload.revision) ? payload.revision : null;
+        if (revision === null) return;
+        var signature = String(Boolean(payload && payload.checking)) + '/' + String(result && result.ok) + '/' + String(result && result.status) + '/' + String(result && result.latestVersion);
+        if (revision < releaseUpdateRevision) return;
+        if (revision === releaseUpdateRevision && signature === releaseUpdatePayloadSignature) return;
+        releaseUpdateRevision = revision;
+        releaseUpdatePayloadSignature = signature;
+        var available = Boolean(result && result.ok && result.status === 'update' && result.updateAvailable !== false);
+        btnReleaseUpdate.hidden = !available;
+        reportStatusHitbox();
+      }
+
+      function bindReleaseUpdateButton() {
+        btnReleaseUpdate.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (api) api.openUpdateAbout();
+        });
       }
 
       var api = window.dshTitlebar;
@@ -278,6 +358,8 @@
       if (api) {
         api.subscribe(apply);
         api.onMaximized(applyMaximized);
+        api.onStatusHover(applyStatusHover);
+        api.onReleaseUpdate(applyReleaseUpdate);
       }
 
       // Menu buttons: click toggles, mouseenter switches (while one is open).
@@ -302,6 +384,7 @@
           api.windowControl(b.getAttribute('data-ctl'));
         }
       });
+      bindReleaseUpdateButton();
 
       // Click on the bare title bar (not a button) -> close any open menu.
       document.getElementById('titlebar').addEventListener('click', function (e) {

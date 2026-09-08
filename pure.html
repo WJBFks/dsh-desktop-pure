@@ -350,6 +350,15 @@
     .pane-body[hidden] {
       display: none;
     }
+    dialog.startup-dialog {
+      width: min(440px, calc(100vw - 32px)); border: 1px solid var(--border-l2);
+      border-radius: 14px; padding: 22px; color: var(--label-primary); background: var(--bg-layer-2);
+    }
+    dialog.startup-dialog::backdrop { background: rgba(0, 0, 0, 0.42); }
+    .startup-dialog h2 { margin: 0 0 7px; font-size: 18px; }
+    .startup-dialog p { margin: 0 0 18px; color: var(--label-secondary); font-size: 13px; line-height: 1.5; }
+    .startup-choices { display: flex; gap: 8px; flex-wrap: wrap; }
+    .startup-choices .selected { border-color: var(--accent); background: var(--bg-module-platform); }
 
     /* Appearance cubes (light / dark / system) */
     .cube-row {
@@ -429,41 +438,71 @@
       border-bottom: none;
       padding-top: 14px;
     }
+    .update-assets {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .update-asset {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 0;
+      border-top: 1px solid var(--border-l2);
+    }
+    .update-asset-name { min-width: 0; color: var(--label-secondary); font-size: 13px; overflow-wrap: anywhere; }
+    .update-asset-size { color: var(--label-tertiary); font-size: 12px; white-space: nowrap; }
+    .update-panel {
+      margin: 0 -12px;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      transition: background 0.16s, border-color 0.16s;
+    }
+    .update-panel.update-available {
+      background: rgba(245, 158, 11, 0.13);
+      border-color: rgba(180, 107, 0, 0.62);
+    }
+    @media (prefers-color-scheme: dark) {
+      .update-panel.update-available { background: rgba(251, 191, 36, 0.14); border-color: rgba(251, 191, 36, 0.66); }
+    }
 
-    /* Changelog (更新日志): version cards, newest first */
+    /* Changelog: document-like version sections, not cards. */
     .changelog {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 0;
     }
-    .cl-entry {
-      background: var(--bg-module-platform);
-      border: 1px solid var(--border-l2);
-      border-radius: 12px;
-      padding: 14px 16px;
+    .cl-version {
+      border-top: 1px solid var(--border-l2);
+      padding: 0;
     }
-    .cl-head {
+    .cl-version:last-child { border-bottom: 1px solid var(--border-l2); }
+    .cl-version > summary {
       display: flex;
       align-items: baseline;
+      cursor: pointer;
       gap: 8px;
-      margin-bottom: 2px;
+      padding: 15px 0;
+      list-style: none;
+      flex-wrap: wrap;
     }
-    .cl-ver {
-      font-size: 14px;
-      font-weight: 600;
+    .cl-version > summary::-webkit-details-marker { display: none; }
+    .cl-version > summary::before { content: '›'; color: var(--label-tertiary); font-size: 18px; transform: rotate(0deg); }
+    .cl-version[open] > summary::before { transform: rotate(90deg); }
+    .cl-ver { font-size: 23px;
+      line-height: 1.25;
+      font-weight: 700;
       color: var(--label-primary);
     }
-    .cl-date {
-      font-size: 12px;
-      line-height: 17px;
-      color: var(--label-tertiary);
+    .cl-body { padding: 0 0 18px 25px; }
+    .cl-sec { margin-top: 14px;
     }
-    .cl-sec {
-      margin-top: 10px;
-    }
-    .cl-sec h4 {
+    .cl-sec h3 {
       margin: 0 0 5px;
-      font-size: 13px;
+      font-size: 18px;
       font-weight: 600;
       color: var(--label-primary);
     }
@@ -474,9 +513,11 @@
       flex-direction: column;
       gap: 4px;
     }
+    .changelog-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .changelog-tools .active { background: var(--bg-module-platform); color: var(--label-primary); }
     .cl-sec li {
-      font-size: 13px;
-      line-height: 19px;
+      font-size: 14px;
+      line-height: 1.65;
       color: var(--label-secondary);
     }
 
@@ -761,6 +802,10 @@
           </div>
         </div>
         <div class="nav-list" id="navList">
+          <button class="nav-cell" data-section="startup" type="button">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M3 2.5h10v11H3z"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
+            <span>启动</span>
+          </button>
           <button class="nav-cell active" data-section="appearance" type="button">
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
               <circle cx="8" cy="8" r="3"/>
@@ -811,6 +856,7 @@
       <!-- Right: top (title) + bottom (content) -->
       <div class="main">
         <div class="content-top">
+          <div class="pane-head" data-section="startup" hidden><h2>启动</h2><p>选择应用下次启动时默认显示的页面。</p></div>
           <div class="pane-head" data-section="appearance">
             <h2>外观</h2>
             <p>选择界面主题，将实时应用于整个 DSH Desktop Pure。</p>
@@ -829,6 +875,16 @@
           </div>
         </div>
         <div class="content-bottom">
+          <div class="pane-body" data-section="startup" hidden>
+            <div class="row"><div class="row-text"><div class="row-title">默认页面</div><div class="row-desc">未设置时默认本机；保存后仅在下次启动时生效。</div></div></div>
+            <div class="startup-choices" id="startupChoices">
+              <button class="btn btn-ghost" data-startup-page="pure" type="button" aria-pressed="false">桌面端配置</button>
+              <button class="btn btn-ghost" data-startup-page="local" type="button" aria-pressed="false" id="startupLocal">Windows</button>
+              <button class="btn btn-ghost" data-startup-page="wsl" type="button" aria-pressed="false" id="startupWsl">WSL</button>
+            </div>
+            <div class="row row-actions"><div class="btn-group"><button class="btn btn-primary" id="startupSave" type="button" disabled>保存</button></div></div>
+            <p class="row-desc" id="startupStatus" aria-live="polite"></p>
+          </div>
           <div class="pane-body" data-section="appearance">
             <div class="cube-row" id="themeCubes">
               <button class="cube" data-theme="light" type="button" aria-pressed="false">
@@ -882,6 +938,8 @@
                 <div class="row" id="rowUrlInput">
                   <input id="epFormUrl" type="text" placeholder="192.168.1.10:3080 或 http://192.168.1.10:3080" />
                 </div>
+                <div class="row add" id="rowToken" hidden><div class="row-text"><div class="row-title">Token（可选）</div><div class="row-desc">旧版本无需 Token 可留空；粘贴含 ?token= 的完整地址会自动拆分。</div></div></div>
+                <div class="row" id="rowTokenInput" hidden><input id="epFormToken" type="password" autocomplete="off" placeholder="Token" /><div class="btn-group"><button class="btn btn-ghost" id="tokenVisibility" type="button">显示</button><label class="row-desc" id="clearTokenLabel" hidden><input id="clearToken" type="checkbox" /> 清除已保存凭据</label></div></div>
                 <div class="row add" id="rowPort">
                   <div class="row-text">
                     <div class="row-title">端口</div>
@@ -952,9 +1010,21 @@
             </div>
           </div>
           <div class="pane-body" data-section="changelog" hidden>
+            <div class="changelog-tools" role="group" aria-label="Changelog language">
+              <button class="btn btn-ghost active" id="changelogZh" type="button" aria-pressed="true">中文</button>
+              <button class="btn btn-ghost" id="changelogEn" type="button" aria-pressed="false">English</button>
+              <button class="btn btn-ghost" id="changelogRetry" type="button" hidden>重试</button>
+            </div>
+            <p class="row-desc" id="changelogStatus" aria-live="polite">正在加载更新日志…</p>
             <div class="changelog" id="changelogBox"></div>
           </div>
           <div class="pane-body" data-section="about" hidden>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">当前版本</div>
+              </div>
+              <div class="val" id="valAppVersion">—</div>
+            </div>
             <div class="row">
               <div class="row-text">
                 <div class="row-title">说明</div>
@@ -980,6 +1050,22 @@
               <a class="link" id="repoLink" href="https://github.com/WJBFks/dsh-desktop-pure"
                  target="_blank" rel="noreferrer">github.com/WJBFks/dsh-desktop-pure</a>
             </div>
+            <section class="update-panel" id="updatePanel">
+              <div class="row">
+                <div class="row-text">
+                  <div class="row-title">GitHub 更新</div>
+                  <div class="row-desc" id="updateStatus" aria-live="polite">手动检查 GitHub Releases 获取最新版本。</div>
+                </div>
+                <button class="btn btn-secondary" id="btnCheckUpdate" type="button">检查更新</button>
+              </div>
+              <div class="update-assets" id="updateAssets" hidden aria-live="polite"></div>
+              <div class="row row-actions">
+                <div class="row-text">
+                  <div class="row-desc">下载将在系统浏览器中进行，完成后请手动安装。</div>
+                </div>
+                <button class="btn btn-ghost" id="btnOpenReleases" type="button">查看 Releases</button>
+              </div>
+            </section>
             <div class="row">
               <div class="row-text">
                 <div class="row-title">许可证 / 作者</div>
@@ -1000,6 +1086,17 @@
       </div>
     </div>
   </div>
+  <dialog class="startup-dialog" id="startupDialog" aria-labelledby="startupDialogTitle">
+    <h2 id="startupDialogTitle">选择启动页面</h2>
+    <p>检测到 Windows 本机和 WSL 均可用。下次启动时默认打开哪个页面？暂不选择会先打开 Windows，下次仍会询问。</p>
+    <div class="startup-choices">
+      <button class="btn btn-primary" id="startupPromptLocal" type="button" autofocus>Windows</button>
+      <button class="btn btn-secondary" id="startupPromptWsl" type="button">WSL</button>
+      <button class="btn btn-ghost" id="startupPromptLater" type="button">暂不选择（本次打开 Windows）</button>
+    </div>
+    <p class="row-desc" id="startupPromptStatus" aria-live="polite"></p>
+  </dialog>
+  <script src="changelog-format.js"></script>
   <script>
     (function () {
       var api = window.dshPure;
@@ -1012,7 +1109,17 @@
       var valDsh = $('valDsh');
       var valEngine = $('valEngine');
       var valPlatform = $('valPlatform');
+      var valAppVersion = $('valAppVersion');
+      var updateStatus = $('updateStatus');
+      var updateAssets = $('updateAssets');
+      var updatePanel = $('updatePanel');
+      var btnCheckUpdate = $('btnCheckUpdate');
+      var btnOpenReleases = $('btnOpenReleases');
       var changelogBox = $('changelogBox');
+      var changelogStatus = $('changelogStatus');
+      var changelogZh = $('changelogZh');
+      var changelogEn = $('changelogEn');
+      var changelogRetry = $('changelogRetry');
       var brandVersion = $('brandVersion');
       var btnOpenWeb = $('btnOpenWeb');
       var btnOpenBrowser = $('btnOpenBrowser');
@@ -1028,6 +1135,8 @@
       var epFormUrl = $('epFormUrl');
       var epFormPort = $('epFormPort');
       var epFormDsh = $('epFormDsh');
+      var epFormToken = $('epFormToken'); var rowToken = $('rowToken'); var rowTokenInput = $('rowTokenInput');
+      var tokenVisibility = $('tokenVisibility'); var clearToken = $('clearToken'); var clearTokenLabel = $('clearTokenLabel');
       var epFormSubmit = $('epFormSubmit');
       var epFormCancel = $('epFormCancel');
       var epFormErr = $('epFormErr');
@@ -1044,11 +1153,15 @@
       var repoLink = $('repoLink');
       var footRepo = $('footRepo');
       var layoutSwitch = $('layoutSwitch');
+      var startupChoices = $('startupChoices'); var startupLocal = $('startupLocal'); var startupWsl = $('startupWsl');
+      var startupSave = $('startupSave'); var startupStatus = $('startupStatus'); var startupDialog = $('startupDialog');
+      var startupPromptLocal = $('startupPromptLocal'); var startupPromptWsl = $('startupPromptWsl'); var startupPromptLater = $('startupPromptLater');
+      var startupPromptStatus = $('startupPromptStatus');
       var cubes = Array.prototype.slice.call(document.querySelectorAll('#themeCubes .cube'));
       var navCells = Array.prototype.slice.call(document.querySelectorAll('#navList .nav-cell'));
       var heads = Array.prototype.slice.call(document.querySelectorAll('.pane-head'));
       var bodies = Array.prototype.slice.call(document.querySelectorAll('.pane-body'));
-      var SECTIONS = ['appearance', 'web', 'changelog', 'about'];
+      var SECTIONS = ['startup', 'appearance', 'web', 'changelog', 'about'];
 
       var lastInfo = null;
       var eps = []; // latest endpoint snapshot from the shell
@@ -1059,6 +1172,18 @@
       var pendingAdd = false; // a successful add is in flight; main will switch
       var editingId = null; // endpoint currently being edited (null = not editing)
       var lastTabsHtml = '';
+      var changelogLanguage = 'zh'; // Independent of the system locale.
+      var changelogRequest = 0;
+      var changelogExpanded = { zh: Object.create(null), en: Object.create(null) };
+      var startupCandidate = 'local'; var startupState = null; var startupSaving = false; var startupFeedback = ''; var startupPromptClosed = false; var startupPromptPending = false; var startupPageSeen = null;
+      var updateBusy = false;
+      var updateChecking = false;
+      var updateDownloading = false;
+      var updateResult = null;
+      var updateRequest = 0;
+      var releaseUpdateRevision = -1;
+      var releaseUpdatePayloadSignature = '';
+      var releaseUpdateSignature = '';
 
       function platformName(p) {
         return p === 'win32' ? 'Windows' : p === 'darwin' ? 'macOS' : p === 'linux' ? 'Linux' : String(p || '—');
@@ -1071,6 +1196,142 @@
         });
         heads.forEach(function (h) { h.hidden = h.getAttribute('data-section') !== name; });
         bodies.forEach(function (b) { b.hidden = b.getAttribute('data-section') !== name; });
+        if (name === 'changelog' && api) loadChangelog(changelogLanguage);
+      }
+
+      function formatAssetSize(size) {
+        var value = Number(size);
+        if (!isFinite(value) || value < 0) return '大小未知';
+        var units = ['B', 'KB', 'MB', 'GB']; var index = 0;
+        while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
+        return (index === 0 ? String(Math.round(value)) : value.toFixed(value >= 10 ? 0 : 1)) + ' ' + units[index];
+      }
+
+      function applyUpdateBusy() {
+        if (btnCheckUpdate) btnCheckUpdate.disabled = updateBusy;
+        if (updateAssets) Array.prototype.slice.call(updateAssets.querySelectorAll('button')).forEach(function (button) { button.disabled = updateBusy; });
+      }
+
+      function syncUpdateBusy() {
+        updateBusy = updateChecking || updateDownloading;
+        applyUpdateBusy();
+      }
+
+      function clearUpdateAssets() {
+        updateResult = null;
+        updateAssets.replaceChildren();
+        updateAssets.hidden = true;
+      }
+
+      function applyUpdateAttention(result) {
+        updatePanel.classList.toggle('update-available', Boolean(result && result.ok && result.status === 'update' && result.updateAvailable !== false));
+      }
+
+      function releaseResultSignature(result) {
+        if (!result || typeof result !== 'object') return '';
+        var assets = Array.isArray(result.assets) ? result.assets : [];
+        return [result.ok, result.status, result.currentVersion, result.latestVersion, result.updateAvailable,
+          assets.map(function (asset) { return asset && [asset.id, asset.name, asset.size].join(':'); }).join('|')].join('/');
+      }
+
+      function updateErrorMessage(error) {
+        var code = typeof error === 'string' ? error : '';
+        if (code === 'rate_limited') return 'GitHub 请求过于频繁，请稍后再试。';
+        if (code === 'timeout') return '检查更新超时，请稍后重试。';
+        if (code === 'offline') return '网络不可用，无法检查 GitHub 更新。';
+        if (code === 'unavailable') return 'GitHub Releases 暂不可用，请稍后再试。';
+        if (code === 'invalid_version') return 'GitHub Release 版本格式无效，无法比较更新。';
+        if (code === 'invalid_response') return 'GitHub返回的版本信息格式异常，请稍后重试。';
+        return code || '无法检查更新，请稍后再试。';
+      }
+
+      function renderUpdateResult(result) {
+        clearUpdateAssets();
+        releaseUpdateSignature = releaseResultSignature(result);
+        applyUpdateAttention(result);
+        if (btnCheckUpdate) btnCheckUpdate.textContent = '再次检查';
+        if (!result || !result.ok) {
+          updateStatus.textContent = updateErrorMessage(result && result.error);
+          return;
+        }
+        if (typeof result.currentVersion === 'string' && result.currentVersion) valAppVersion.textContent = 'v' + result.currentVersion;
+        if (result.status === 'update' && typeof result.latestVersion === 'string' && result.latestVersion) {
+          updateResult = result;
+          updateStatus.textContent = '发现新版本 v' + result.latestVersion + '（当前 v' + (result.currentVersion || '—') + '）。请选择要下载的安装包。';
+          var assets = Array.isArray(result.assets) ? result.assets : [];
+          if (!assets.length) { updateStatus.textContent += ' 此 Release 没有可下载资产。'; return; }
+          updateAssets.hidden = false;
+          assets.forEach(function (asset) {
+            if (!asset || (typeof asset.id !== 'string' && typeof asset.id !== 'number') || typeof asset.name !== 'string') return;
+            var item = document.createElement('div'); item.className = 'update-asset';
+            var meta = document.createElement('div'); meta.className = 'update-asset-name'; meta.textContent = asset.name;
+            var size = document.createElement('span'); size.className = 'update-asset-size'; size.textContent = formatAssetSize(asset.size);
+            meta.appendChild(document.createTextNode(' · ')); meta.appendChild(size);
+            var download = document.createElement('button'); download.type = 'button'; download.className = 'btn btn-secondary'; download.textContent = '下载';
+            download.addEventListener('click', function () { return downloadUpdate(asset.id); });
+            item.appendChild(meta); item.appendChild(download); updateAssets.appendChild(item);
+          });
+          if (!updateAssets.childNodes.length) updateAssets.hidden = true;
+          return;
+        }
+        if (result.status === 'current') updateStatus.textContent = '当前已是最新版本。';
+        else if (result.status === 'ahead') updateStatus.textContent = '当前版本高于 GitHub Release，暂无需更新。';
+        else updateStatus.textContent = 'GitHub 上暂未找到可用的 Release。';
+      }
+
+      function checkForUpdate() {
+        if (updateBusy || !api || typeof api.checkUpdate !== 'function') return Promise.resolve();
+        var request = ++updateRequest;
+        updateChecking = true; clearUpdateAssets(); applyUpdateAttention(null); updateStatus.textContent = '正在检查 GitHub Releases…'; syncUpdateBusy();
+        return Promise.resolve().then(function () { return api.checkUpdate(); }).then(function (result) {
+          if (request === updateRequest) renderUpdateResult(result);
+        }).catch(function () {
+          if (request === updateRequest) renderUpdateResult({ ok: false, error: '无法检查更新，请稍后再试。' });
+        }).then(function () {
+          if (request === updateRequest) { updateChecking = false; syncUpdateBusy(); }
+        }, function () { if (request === updateRequest) { updateChecking = false; syncUpdateBusy(); } });
+      }
+
+      function applyReleaseUpdate(payload) {
+        if (!payload || typeof payload !== 'object') return;
+        var hasResult = Object.prototype.hasOwnProperty.call(payload, 'result');
+        var result = hasResult ? payload.result : payload;
+        var revision = hasResult && Number.isSafeInteger(payload.revision) ? payload.revision : null;
+        if (revision === null) return;
+        var payloadSignature = (hasResult && payload.checking === true ? 'checking/' : 'ready/') + releaseResultSignature(result);
+        if (revision < releaseUpdateRevision) return;
+        if (revision === releaseUpdateRevision && payloadSignature === releaseUpdatePayloadSignature) return;
+        releaseUpdateRevision = revision;
+        releaseUpdatePayloadSignature = payloadSignature;
+        ++updateRequest;
+        updateChecking = Boolean(hasResult && payload.checking === true);
+        if (hasResult && payload.checking === true && !result) {
+          clearUpdateAssets(); releaseUpdateSignature = ''; applyUpdateAttention(null); updateStatus.textContent = '正在检查 GitHub Releases…';
+        } else if (result && typeof result === 'object') {
+          if (releaseResultSignature(result) !== releaseUpdateSignature) renderUpdateResult(result);
+        }
+        syncUpdateBusy();
+      }
+
+      function downloadUpdate(assetId) {
+        if (updateBusy || !api || typeof api.downloadUpdate !== 'function') return Promise.resolve();
+        updateDownloading = true; updateStatus.textContent = '正在交给系统浏览器下载…'; syncUpdateBusy();
+        return Promise.resolve().then(function () { return api.downloadUpdate(assetId); }).then(function (result) {
+          updateStatus.textContent = result && result.ok ? '已在系统浏览器中打开下载，请完成后手动安装。' : updateErrorMessage(result && result.error);
+        }).catch(function () {
+          updateStatus.textContent = '无法打开下载，请重试。';
+        }).then(function () { updateDownloading = false; syncUpdateBusy(); }, function () { updateDownloading = false; syncUpdateBusy(); });
+      }
+
+      function bindUpdateControls() {
+        btnCheckUpdate.addEventListener('click', function () { return checkForUpdate(); });
+        btnOpenReleases.addEventListener('click', function () {
+          api.openExternal('https://github.com/WJBFks/dsh-desktop-pure/releases');
+        });
+      }
+
+      function handleRequestedSection(section) {
+        if (section === 'about') showPane('about');
       }
 
       // Full-window vs centered-card layout (persisted by the shell). Applied
@@ -1089,6 +1350,54 @@
           c.classList.toggle('selected', on);
           c.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
+      }
+
+      function applyStartup(startup, platform) {
+        startupState = startup && typeof startup === 'object' ? startup : null;
+        var state = startupState || {};
+        var localLabel = platform === 'win32' ? 'Windows' : '本机';
+        startupLocal.textContent = localLabel;
+        startupWsl.disabled = !state.wslAvailable || state.detecting || startupSaving;
+        var authoritativePage = state.page === 'pure' || state.page === 'wsl' ? state.page : 'local';
+        if (!startupSaving && (startupPageSeen === null || startupPageSeen !== authoritativePage)) startupCandidate = authoritativePage;
+        startupPageSeen = authoritativePage;
+        Array.prototype.slice.call(startupChoices.querySelectorAll('[data-startup-page]')).forEach(function (button) {
+          var selected = button.getAttribute('data-startup-page') === startupCandidate;
+          button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          button.disabled = startupSaving || (button.getAttribute('data-startup-page') === 'wsl' && (!state.wslAvailable || state.detecting));
+        });
+        startupSave.disabled = startupSaving || (state.page !== null && startupCandidate === state.page);
+        if (state.detecting) startupStatus.textContent = '正在检测 WSL…';
+        else if (startupFeedback) startupStatus.textContent = startupFeedback;
+        else if (state.page === null) startupStatus.textContent = '尚未设置：默认 ' + localLabel + '；检测到双环境时下次仍会询问。';
+        else startupStatus.textContent = '已设置为“' + (state.page === 'pure' ? '桌面端配置' : state.page === 'wsl' ? 'WSL' : localLabel) + '”。';
+      }
+
+      function chooseStartupPrompt(page) {
+        if (startupPromptClosed || startupPromptPending) return Promise.resolve();
+        startupPromptPending = true;
+        [startupPromptLocal, startupPromptWsl, startupPromptLater].forEach(function (button) { button.disabled = true; });
+        startupPromptStatus.textContent = '正在保存选择…';
+        return Promise.resolve(api.chooseStartupPage(page)).then(function (result) {
+          startupPromptPending = false;
+          if (result && result.ok) {
+            startupPromptClosed = true;
+            if (startupDialog.open) startupDialog.close();
+            return;
+          }
+          startupPromptStatus.textContent = (result && result.error) || '保存失败，请重试。';
+          [startupPromptLocal, startupPromptWsl, startupPromptLater].forEach(function (button) { button.disabled = false; });
+        }).catch(function () {
+          startupPromptPending = false;
+          startupPromptStatus.textContent = '保存失败，请重试。';
+          [startupPromptLocal, startupPromptWsl, startupPromptLater].forEach(function (button) { button.disabled = false; });
+        });
+      }
+
+      function maybeShowStartupPrompt(startup) {
+        if (!startup || !startup.prompt || startupPromptClosed || startupDialog.open || typeof startupDialog.showModal !== 'function') return;
+        startupDialog.showModal();
+        if (startupPromptLocal && typeof startupPromptLocal.focus === 'function') startupPromptLocal.focus();
       }
 
       function activeEpObj() {
@@ -1125,6 +1434,10 @@
         rowPortInput.hidden = isAdd;
         rowDsh.hidden = isAdd;
         rowDshInput.hidden = isAdd;
+        var isCustom = kind === 'custom';
+        rowToken.hidden = !isCustom;
+        rowTokenInput.hidden = !isCustom;
+        clearTokenLabel.hidden = !isCustom || isAdd || !(fs.ep && fs.ep.hasToken);
         if (!isAdd && kind === 'wsl') {
           epFormDshTitle.textContent = 'WSL 内 dsh 路径 *';
           epFormDshDesc.textContent = '留空 = 自动检测（npm 全局位置）';
@@ -1138,7 +1451,7 @@
           epFormUrlDesc.textContent = '远端 dsh web 的 URL，省略协议时默认 http（需在远端以 --trusted-host 声明本端主机）';
           epFormUrl.placeholder = '192.168.1.10:3080 或 http://192.168.1.10:3080';
         } else if (kind === 'custom') {
-          epFormUrlDesc.textContent = '远端 dsh web 的 URL，省略协议时默认 http';
+          epFormUrlDesc.textContent = '远端 dsh web 的 URL，省略协议时默认 http；改服务器地址时需重新输入 Token 或清除';
           epFormUrl.placeholder = '192.168.1.10:3080 或 http://192.168.1.10:3080';
         } else {
           epFormUrlDesc.textContent =
@@ -1154,6 +1467,7 @@
         epFormUrl.value = '';
         epFormPort.value = '';
         epFormDsh.value = '';
+        clearTokenForm();
         epFormErr.hidden = true;
       }
 
@@ -1162,7 +1476,41 @@
         epFormUrl.value = ep.kind === 'custom' ? ep.url || '' : ep.urlOverride || '';
         epFormPort.value = ep.port != null ? String(ep.port) : '';
         epFormDsh.value = ep.kind === 'wsl' ? ep.dshOverride || '' : ep.dsh || '';
+        clearTokenForm();
+        if (ep.kind === 'custom' && ep.hasToken) epFormToken.placeholder = '已保存（留空保持不变）';
         epFormErr.hidden = true;
+      }
+
+      function clearTokenForm() {
+        epFormToken.value = ''; epFormToken.type = 'password'; epFormToken.placeholder = 'Token';
+        clearToken.checked = false; tokenVisibility.textContent = '显示';
+      }
+
+      function splitTokenUrl(raw) {
+        var input = String(raw || '').trim();
+        if (!input) return { url: input, token: null };
+        try {
+          var suppliedProtocol = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(input);
+          var parsed = new URL(suppliedProtocol ? input : 'http://' + input);
+          var tokens = parsed.searchParams.getAll('token');
+          if (tokens.length === 0) return { url: input, token: null };
+          if (tokens.length !== 1 || tokens[0] === '' || /\s/.test(tokens[0]) || tokens[0].length > 4096) return { url: input, error: '地址中的 Token 无效或重复，请使用独立 Token 输入框。' };
+          var token = tokens[0];
+          parsed.searchParams.delete('token');
+          return { url: suppliedProtocol ? parsed.toString() : parsed.toString().replace(/^http:\/\//, ''), token: token };
+        } catch (_error) { return { url: input, token: null }; }
+      }
+
+      function absorbUrlToken() {
+        var split = splitTokenUrl(epFormUrl.value);
+        if (split.error) { epFormErr.textContent = split.error; epFormErr.hidden = false; return false; }
+        if (split.token === null) return true;
+        if (epFormToken.value !== '') {
+          epFormErr.textContent = '地址中的 Token 与独立 Token 输入冲突，请只保留一个。'; epFormErr.hidden = false;
+          return false;
+        }
+        epFormUrl.value = split.url; epFormToken.value = split.token;
+        return true;
       }
 
       // Endpoint tab bar (本机 / WSL / custom + an 「添加」 tab). Diffed by
@@ -1266,34 +1614,157 @@
           .replace(/'/g, '&#39;');
       }
 
-      // Full changelog (kept in sync with CHANGELOG.md), newest first.
-      function renderChangelog(list) {
-        if (!changelogBox) return;
-        if (!list || !list.length) {
-          changelogBox.innerHTML = '<p class="row-desc">暂无更新日志。</p>';
-          return;
-        }
-        changelogBox.innerHTML = list.map(function (e) {
-          var secs = (e.sections || []).map(function (s) {
-            var lis = (s.items || [])
-              .map(function (i) { return '<li>' + esc(i) + '</li>'; })
-              .join('');
-            return '<div class="cl-sec"><h4>' + esc(s.title) + '</h4><ul>' + lis + '</ul></div>';
-          }).join('');
-          return '<article class="cl-entry">' +
-            '<header class="cl-head"><span class="cl-ver">v' + esc(e.version) + '</span>' +
-            '<time class="cl-date">' + esc(e.date) + '</time></header>' + secs + '</article>';
-        }).join('');
+      function appendMarkdownInline(parent, source) {
+        var re = /\[([^\]]+)]\(([^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*/g;
+        var cursor = 0;
+        String(source).replace(re, function (match, label, href, code, strong, offset) {
+          parent.appendChild(document.createTextNode(String(source).slice(cursor, offset)));
+          cursor = offset + match.length;
+          if (code != null) {
+            var codeNode = document.createElement('code');
+            codeNode.textContent = code;
+            parent.appendChild(codeNode);
+            return match;
+          }
+          if (strong != null) {
+            var strongNode = document.createElement('strong');
+            strongNode.textContent = strong;
+            parent.appendChild(strongNode);
+            return match;
+          }
+          try {
+            var url = new URL(href);
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('unsafe link');
+            var link = document.createElement('a');
+            link.href = '#';
+            link.textContent = label;
+            link.addEventListener('click', function (event) {
+              event.preventDefault();
+              if (api) api.openExternal(url.href);
+            });
+            parent.appendChild(link);
+          } catch (_error) {
+            parent.appendChild(document.createTextNode(label));
+          }
+          return match;
+        });
+        parent.appendChild(document.createTextNode(String(source).slice(cursor)));
+      }
+
+      function showChangelogFormatError() {
+        changelogBox.replaceChildren();
+        var message = document.createElement('p');
+        message.className = 'row-desc';
+        message.textContent = changelogLanguage === 'en'
+          ? 'The changelog format is invalid and cannot be displayed safely.'
+          : '更新日志格式无效，无法安全显示。';
+        changelogBox.appendChild(message);
+      }
+
+      function rememberExpanded() {
+        var states = changelogExpanded[changelogLanguage];
+        Array.prototype.slice.call(changelogBox.querySelectorAll('details[data-version]')).forEach(function (details) {
+          states[details.getAttribute('data-version')] = details.open;
+        });
+      }
+
+      function renderChangelog(markdown) {
+        var formatter = window.DshChangelogFormat;
+        var parsed = formatter && formatter.parseChangelog ? formatter.parseChangelog(markdown) : null;
+        if (!parsed || parsed.errors.length || !parsed.versions.length) return false;
+        rememberExpanded();
+        var versions = parsed.versions.slice().sort(function (left, right) {
+          return formatter.compareSemver(right.version, left.version);
+        });
+        var states = changelogExpanded[changelogLanguage];
+        changelogBox.replaceChildren();
+        versions.forEach(function (entry, index) {
+          var details = document.createElement('details');
+          details.className = 'cl-version';
+          details.setAttribute('data-version', entry.version);
+          details.open = Object.prototype.hasOwnProperty.call(states, entry.version) ? states[entry.version] : index === 0;
+          details.addEventListener('toggle', function () { states[entry.version] = details.open; });
+          var summary = document.createElement('summary');
+          var version = document.createElement('span');
+          version.className = 'cl-ver';
+          version.textContent = '[' + entry.version + '] — ' + entry.date;
+          summary.appendChild(version); details.appendChild(summary);
+          var body = document.createElement('div');
+          body.className = 'cl-body';
+          entry.categories.forEach(function (section) {
+            var group = document.createElement('section'); group.className = 'cl-sec';
+            var title = document.createElement('h3'); appendMarkdownInline(title, section.title); group.appendChild(title);
+            var list = document.createElement('ul');
+            section.items.forEach(function (source) {
+              var item = document.createElement('li');
+              appendMarkdownInline(item, source.text + (source.continuations.length ? ' ' + source.continuations.join(' ') : ''));
+              list.appendChild(item);
+            });
+            group.appendChild(list); body.appendChild(group);
+          });
+          details.appendChild(body); changelogBox.appendChild(details);
+        });
+        return true;
+      }
+
+      function changelogMessage(result) {
+        if (result && result.source === 'network') return changelogLanguage === 'en' ? 'Updated from GitHub.' : '已从 GitHub 更新。';
+        if (result && result.verified) return changelogLanguage === 'en' ? 'Cached copy verified as current.' : '缓存已验证为最新。';
+        if (result && result.stale) return changelogLanguage === 'en' ? 'Could not verify the latest content; showing cached copy.' : '无法验证最新内容，正在显示缓存。';
+        return changelogLanguage === 'en' ? 'Loading changelog…' : '正在加载更新日志…';
+      }
+
+      function loadChangelog(language) {
+        rememberExpanded();
+        changelogLanguage = language === 'en' ? 'en' : 'zh';
+        [changelogZh, changelogEn].forEach(function (button) {
+          var active = button === (changelogLanguage === 'en' ? changelogEn : changelogZh);
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        var request = ++changelogRequest;
+        changelogBox.replaceChildren();
+        changelogStatus.hidden = false;
+        changelogStatus.textContent = changelogLanguage === 'en' ? 'Loading cached changelog…' : '正在读取缓存的更新日志…';
+        changelogRetry.hidden = false;
+        changelogRetry.textContent = changelogLanguage === 'en' ? 'Refresh' : '刷新';
+        Promise.resolve(api.getChangelog(changelogLanguage, { cachedOnly: true })).then(function (cached) {
+          if (request !== changelogRequest) return;
+          if (cached && cached.ok && typeof cached.markdown === 'string') {
+            if (renderChangelog(cached.markdown)) changelogStatus.textContent = changelogLanguage === 'en' ? 'Showing cached copy; checking GitHub…' : '正在显示缓存，正在检查 GitHub…';
+            else { showChangelogFormatError(); changelogStatus.textContent = changelogLanguage === 'en' ? 'Cached changelog has an invalid format.' : '缓存的更新日志格式无效。'; }
+          }
+          return api.getChangelog(changelogLanguage);
+        }).then(function (result) {
+          if (request !== changelogRequest || !result) return;
+          if (result.ok && typeof result.markdown === 'string') {
+            if (renderChangelog(result.markdown)) changelogStatus.textContent = changelogMessage(result);
+            else changelogStatus.textContent = changelogLanguage === 'en' ? 'The latest changelog has an invalid format.' : '最新更新日志格式无效。';
+          } else {
+            changelogStatus.textContent = changelogLanguage === 'en'
+              ? 'Could not load the GitHub changelog. Try again.'
+              : '无法从 GitHub 加载更新日志，请重试。';
+          }
+        }).catch(function () {
+          if (request !== changelogRequest) return;
+          changelogStatus.textContent = changelogLanguage === 'en'
+            ? 'Could not load the GitHub changelog. Try again.'
+            : '无法从 GitHub 加载更新日志，请重试。';
+        });
       }
 
       function applyInfo(info) {
         if (!info || typeof info !== 'object') return;
         lastInfo = info;
         brandVersion.textContent = 'v' + (info.version || '—');
+        valAppVersion.textContent = 'v' + (info.version || '—');
         var v = info.versions || {};
         valEngine.textContent =
           'Electron ' + (v.electron || '—') + ' · Chromium ' + (v.chrome || '—') + ' · Node ' + (v.node || '—');
         valPlatform.textContent = platformName(info.platform);
+        if (info.releaseUpdate && typeof info.releaseUpdate === 'object') applyReleaseUpdate(info.releaseUpdate);
+        applyStartup(info.startup, info.platform);
+        maybeShowStartupPrompt(info.startup);
         // DSH Web endpoint state (tab bar + detail rows). Main is
         // authoritative for the selected endpoint — but while the 添加 tab is
         // open we keep it (until a successful add makes main switch over).
@@ -1312,7 +1783,6 @@
         }
         renderEndpoints();
         applyEndpointDetail();
-        renderChangelog(info.changelog);
         applyLayout(info.layout);
         selectTheme(info.themeSource);
       }
@@ -1338,6 +1808,43 @@
           /* ignore — page still renders, values stay at placeholders */
         });
         api.subscribe(applyInfo);
+        api.onReleaseUpdate(applyReleaseUpdate);
+        api.onShowSection(handleRequestedSection);
+        changelogZh.addEventListener('click', function () { loadChangelog('zh'); });
+        changelogEn.addEventListener('click', function () { loadChangelog('en'); });
+        changelogRetry.addEventListener('click', function () { loadChangelog(changelogLanguage); });
+        loadChangelog('zh');
+        epFormUrl.addEventListener('change', function () {
+          var fs = formState();
+          if (fs.mode === 'add' || (fs.ep && fs.ep.kind === 'custom')) absorbUrlToken();
+        });
+        epFormToken.addEventListener('input', function () { if (epFormToken.value !== '') clearToken.checked = false; });
+        clearToken.addEventListener('change', function () {
+          if (clearToken.checked && epFormToken.value !== '') {
+            clearToken.checked = false; epFormErr.textContent = '清除凭据与新 Token 输入冲突，请只保留一个。'; epFormErr.hidden = false;
+          }
+        });
+        tokenVisibility.addEventListener('click', function () {
+          var visible = epFormToken.type === 'text'; epFormToken.type = visible ? 'password' : 'text'; tokenVisibility.textContent = visible ? '显示' : '隐藏';
+        });
+        startupChoices.addEventListener('click', function (event) {
+          var button = event.target && event.target.closest ? event.target.closest('[data-startup-page]') : null;
+          if (!button || button.disabled || startupSaving) return;
+          startupCandidate = button.getAttribute('data-startup-page'); applyStartup(startupState, lastInfo && lastInfo.platform);
+        });
+        startupSave.addEventListener('click', function () {
+          if (startupSaving) return;
+          startupSaving = true; startupFeedback = ''; startupStatus.textContent = '正在保存…'; applyStartup(startupState, lastInfo && lastInfo.platform);
+          Promise.resolve(api.setStartupPage(startupCandidate)).then(function (result) {
+            startupSaving = false;
+            startupFeedback = result && result.ok ? '已保存，下次启动时生效。' : (result && result.error) || '保存失败，请重试。';
+            applyStartup(startupState, lastInfo && lastInfo.platform);
+          }).catch(function () { startupSaving = false; startupFeedback = '保存失败，请重试。'; applyStartup(startupState, lastInfo && lastInfo.platform); });
+        });
+        startupPromptLocal.addEventListener('click', function () { chooseStartupPrompt('local'); });
+        startupPromptWsl.addEventListener('click', function () { chooseStartupPrompt('wsl'); });
+        startupPromptLater.addEventListener('click', function () { chooseStartupPrompt(null); });
+        startupDialog.addEventListener('cancel', function (event) { event.preventDefault(); chooseStartupPrompt(null); });
 
         cubes.forEach(function (c) {
           c.addEventListener('click', function () {
@@ -1377,8 +1884,9 @@
             var name = epFormName.value.trim();
             epFormErr.hidden = true;
             if (selectedTab === '__add__') {
+              if (!absorbUrlToken()) return;
               var url = epFormUrl.value.trim();
-              Promise.resolve(api.addEndpoint(name, url))
+              Promise.resolve(api.addEndpoint(name, url, epFormToken.value))
                 .then(function (res) {
                   if (res && res.ok) {
                     // Main switches activeEndpoint to the new endpoint; the
@@ -1386,6 +1894,7 @@
                     pendingAdd = true;
                     epFormName.value = '';
                     epFormUrl.value = '';
+                    clearTokenForm();
                   } else {
                     epFormErr.textContent = (res && res.error) || '添加失败';
                     epFormErr.hidden = false;
@@ -1409,10 +1918,17 @@
               dsh: epFormDsh.value.trim(),
               url: epFormUrl.value.trim()
             };
+            if (ep.kind === 'custom') {
+              if (!absorbUrlToken()) return;
+              patch.url = epFormUrl.value.trim();
+              if (clearToken.checked) patch.token = '';
+              else if (epFormToken.value !== '') patch.token = epFormToken.value;
+            }
             Promise.resolve(api.editEndpoint(ep.id, patch))
               .then(function (res) {
                 if (res && res.ok) {
                   var savedEp = ep;
+                  clearTokenForm();
                   editingId = null;
                   selectedTab = savedEp.id;
                   renderEndpoints();
@@ -1441,6 +1957,7 @@
             } else {
               editingId = null;
             }
+            clearTokenForm();
             renderFormMode();
             applyEndpointDetail();
           });
@@ -1470,7 +1987,15 @@
         });
         btnOpenBrowser.addEventListener('click', function () {
           var ep = activeEpObj();
-          if (ep && ep.url) api.openExternal(ep.url);
+          if (ep && ep.url) {
+            if (ep.kind === 'custom') {
+              Promise.resolve(api.openEndpointBrowser(ep.id)).then(function (result) {
+                if (result && result.ok) return;
+                connDesc.textContent = (result && result.error) || '无法在浏览器中打开该端点。';
+              }).catch(function () { connDesc.textContent = '无法在浏览器中打开该端点。'; });
+            }
+            else api.openExternal(ep.url);
+          }
         });
         btnRemoveEp.addEventListener('click', function () {
           var ep = activeEpObj();
@@ -1484,6 +2009,7 @@
           e.preventDefault();
           api.openExternal('https://github.com/WJBFks/dsh-desktop-pure');
         });
+        bindUpdateControls();
       }
 
       showPane('appearance');

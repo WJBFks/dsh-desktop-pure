@@ -7,10 +7,24 @@
 ## 行为说明
 
 - **生命周期**：`✕` / 「文件 → 最小化到托盘」= 隐藏到托盘（dsh 服务器继续运行）；托盘「退出」或「文件 → 退出」= 真正退出，并清理**自己拉起的** `dsh web` 进程树（Win: `taskkill /T /F`；POSIX: SIGTERM）。
-- **内置 DSH Desktop Pure 页（「桌面端配置」）**：标题栏「文件」左侧的「页面」按钮可下拉切换 **桌面端配置 / DSH Web**。DSH Desktop Pure 是壳自带的独立页面（外观 / DSH Web / 更新日志 / 关于 四个分区，含全屏 / 卡片布局切换；DSH Web 分区为多端点 Tab：Windows 本机 / WSL 自动检测与拉起 `wsl → dsh web --host <WSL IP> --trusted-host <WSL IP>` / 自定义远程地址只读连接，持久化到 `userData/endpoints.json`），参考 DSH Web 设置页风格，支持浅色 / 深色，**完全独立于 dsh web**——服务未启动也不影响它。启动默认进入 DSH Web；若 dsh web 无法就绪则自动回退到该页，**不退出应用**。
+- **内置 DSH Desktop Pure 页（「桌面端配置」）**：标题栏「文件」左侧的「页面」按钮可下拉切换 **桌面端配置 / DSH Web**。DSH Desktop Pure 是壳自带的独立页面（启动 / 外观 / DSH Web / 更新日志 / 关于五个分区，含全屏 / 卡片布局切换；DSH Web 分区为多端点 Tab：Windows 本机 / WSL 自动检测与拉起 `wsl → dsh web --host <WSL IP> --trusted-host <WSL IP>` / 自定义远程地址只读连接，持久化到 `userData/endpoints.json`），参考 DSH Web 设置页风格，支持浅色 / 深色，**完全独立于 dsh web**——服务未启动也不影响它。启动时先加载桌面壳页面，随后进行 DSH 检测、启动和认证；若 dsh web 无法就绪则回到该页的引导/错误状态，**不退出应用**。
+- **启动设置与首次环境选择**：启动设置可保存桌面端配置、Windows 或 WSL 作为下次启动默认页。Windows 检测到 WSL 且尚未保存偏好时，首次显示 Windows / WSL /「暂不选择」；选择环境会保存并立即打开，选择「暂不选择」本次进入 Windows 但不保存偏好，下次启动仍会询问。已保存偏好不重复询问；保存的 WSL 不可用时回到桌面端配置页并保留设置。
+- **启动流程与进度**：桌面壳先完成加载，随后对 DSH 做真实检测、启动与认证，最后加载 DSH 网页。启动覆盖层按 `checking`、`starting`、`authenticating`、`loading` 阶段显示状态；这些阶段不是网页加载的真实百分比。网页以 `did-finish-load` 作为加载完成边界，超过 30 秒则进入错误引导并提供重试。
+- **桌面更新日志**：更新日志内容从 GitHub 仓库 `main` 分支的 `CHANGELOG.md` / `CHANGELOG.en.md` 读取，不由 `main.js` 手工硬编码。中文 / English 按钮用于切换语言，默认显示中文；读取失败时显示提示并提供重试。
+- **更新日志展示**：应用隐藏首个版本之前的介绍内容；最新版本默认展开，其余版本默认折叠。中英文日志使用共享格式解析器，可通过 `npm run check:changelog` 检查版本标题、条目续行、双语日期、语义版本倒序唯一性和日期合法性。格式规则见 [CHANGELOG_FORMAT](./CHANGELOG_FORMAT.md)。
+- **更新日志缓存**：中文和 English 日志分别持久缓存于 `userData/changelog-cache`。打开页面时先读取本地缓存，再在后台带上缓存的 ETag / Last-Modified 发起条件请求；GitHub 返回 `304` 时将缓存标记为已验证。网络不可用等情况下继续显示旧缓存，并明确提示这是未验证的内容。更新可见时间仍受网络与 CDN 影响，不保证 GitHub 提交后立即同步。
+- **远程端点 Token**：自定义远程端点使用独立的 password 类型 Token 输入，也接受含 `token` 参数的完整 URL。编辑时未改动同源地址可保留凭据；可输入新 Token 替换，或明确清除；更换 origin 时不会默认沿用旧 Token。Token 通过 Electron safeStorage 加密保存，不进入 Pure 状态快照；“在浏览器中打开”由主进程还原带 Token 的运行时 URL。若旧 URL 含明文 Token，初始化会尝试原子加密迁移；加密或写入失败时保留原文件，因此不能保证所有旧明文立即消失。加密不可用时拒绝保存新 Token；解密失败保留原加密凭据，并可重新输入或明确清除。
 - **复用的服务不归壳管**：复用了已有 `dsh web` 时，壳不持有它的进程句柄，退出时不会杀它（避免误杀你手动启动的实例）。
 - **dsh web 意外退出 / 掉线**（仅自己拉起的实例）：**停留在该端点自己的路由层状态页**（已断开 / 加载失败组件，WSL 端点为三步引导页的状态原位刷新），不再跳转到「桌面端配置」页；标题栏同步提示原因，可从该页直接重试 / 重启（重启期间的退出被识别为有意行为，不退出应用）。仅用户主动操作（「页面」菜单选桌面端配置、编辑 / 重置端点设置）才切回设置页。
+- **服务器菜单操作范围**：服务器菜单新增“关闭 dsh 服务器”；“重启 dsh 服务器”“关闭 dsh 服务器”和“在系统浏览器中打开”附当前页面名称。关闭/重启仅在当前页存在可验证的壳自有子进程或严格匹配的 Windows 恢复候选时启用；Pure 配置页三项服务器操作无后缀且禁用，custom 远程端点的关闭/重启带当前页面名称但禁用。操作失败不会标记为已断开，也不会广泛杀掉壳、远程端点或其他系统服务；custom 远程端点不由本壳管理进程。
+- **断开后的页面状态**：dsh 断开后停留在当前端点的已断开/错误页，等待用户显式重试；壳不退出，也不自动重连。
 - **WSL 引导页检测纪律**：点击 WSL 页 = 进入路由层「加载中」并运行**首次检测**，检测完成才自动落到卡住的步骤；后台周期检测（60s）**不会移动用户正在阅读的步骤**，只原位刷新各步的状态行 / 底部状态栏；仅点击「我已安装，重新检测」（手动检测）或一键安装完成后的自动复检才会重新落步。
+- **WSL 发行版信息与检测失败**：界面显示的发行版信息取自发行版 `/etc/os-release` 中真实的 `PRETTY_NAME` / 版本；注册名 `Ubuntu` 本身不代表发行版版本。`wsl --list --verbose` 的 `VERSION` 表示 WSL 1 或 WSL 2。检测失败会保留错误信息，不再一律归类为未安装，以便排查权限、服务异常或超时；这不是对所有机器上的 WSL 问题已解决的保证。
+- **Windows 本机启动失败引导**：分别检测外部 Node.js/npm、DSH 与启动连接，按三步引导处理。Node 一键安装通过 winget 执行 `OpenJS.NodeJS.LTS`；找不到 winget 时提示从 nodejs.org 手动安装 LTS。DSH 一键安装执行 `npm install -g @deepseek-ai/dsh`。安装均仅由用户点击触发；页面支持复制手动命令、重新检测，并显示进度与失败信息。Windows 与 WSL 的底部动作统一为“我已安装/启动，重新检测”，且只在实测就绪后变为禁用的“已安装/已启动”；平台安装命令仍保持各自差异。
+- **Windows 手动 DSH 认证**：当本机 DSH 需要认证时，引导支持输入完整本机认证 URL，或只输入 Token 后连接；Token 仅保留在内存中，不以明文保存。该状态下自动启动为强制启动，执行前需要二次确认停止现有 DSH 并重启；仅当 DSH 进程身份校验通过时才允许操作，未知端口占用会被拒绝。普通连接状态不受此规则改变。
+- **Windows 本机手动复用认证实例**：复用需要认证的本机 DSH 时，标题栏状态默认以 `***` 脱敏，悬停才显示完整 URL/token；Pure 配置页不展示 Token。关闭或重启复用实例前必须二次确认，默认取消；操作前重新核对监听进程身份，未知占用或身份变化都会被拒绝。这些操作不用于管理任意远程进程。
+- **新版 DSH 启动握手**：兼容 dsh 在 stdout 输出 token URL、再通过 303 + cookie 完成认证的流程；启动后可立即识别就绪，避免误等 120 秒后终止。`--verbose` 转发日志时会脱敏 token；开发测试包含 HTTP 回归测试桩。
+- **Windows token 恢复**：新版 token DSH 启动成功后，使用 Windows safeStorage/DPAPI 加密保存最小恢复凭据。桌面进程异常退出但 dsh web 遗留时，下次启动先核验端口监听进程身份（含 `--port 0` 动态端口），再严格验证 token 的 303/cookie 握手，成功后自动复用；后续健康检查与会话复用也走同一握手。正常退出只终止仍匹配恢复记录的进程，且确认成功后才清理凭据；子进程异常退出清理恢复记录。明确的 DSH 401 快速失败，不进行多轮 grace 等待；陌生 401 不当作 DSH。其他终端手动启动且本应用从未拿到 token 的实例无法自动获取 token，需使用终端打印的完整 URL。
 - **自测**：`npm run selftest` 验证端口策略辅助函数（空闲/占用探测、占用进程 PID + 名称识别；使用 3987 测试端口，不碰 3080）。
 - **测试桩（开发用，不随包发布）**：`tools/fake-dsh.js` / `fake-dsh.cmd` 模拟 `dsh web`（解析 `web --no-open --port N`、打印与真实 dsh 一致的 URL 行、伺服一个「测试桩」页面），`tools/dummy-server.js` 模拟端口占用假服务。配合 `npm start -- --port=3987 --dsh=tools\fake-dsh.cmd` 可在不触碰真实 dsh 数据的情况下验证拉起 / 冲突全流程。
 
@@ -38,7 +52,7 @@ npm run selftest     # 端口策略自测（用 3987 测试端口，不碰 3080�
 | `--port=<n>` | `DSH_DESKTOP_PORT` | `dsh web` 监听端口（`0` = 系统分配） | `3080` |
 | `--url=<url>` | `DSH_DESKTOP_URL` | 直接加载该地址，不 spawn、不探测 | 无 |
 | `--dsh=<path>` | `DSH_DESKTOP_DSH` | `dsh` 可执行文件的完整路径 | `dsh`（走 PATH） |
-| `--verbose` | `DSH_DESKTOP_VERBOSE=1` | 转发 dsh 日志到终端 | 关 |
+| `--verbose` | `DSH_DESKTOP_VERBOSE=1` | 转发 dsh 日志到终端（token 脱敏） | 关 |
 
 示例：`npm start -- --port=8080`、`npm start -- --url=http://127.0.0.1:3080`
 
@@ -75,7 +89,7 @@ dsh-desktop-pure/
 ├── menupreload.js       # 菜单 preload：菜单数据订阅 + 动作回传
 ├── build/               # 图标：icon-256.png / icon.ico（深色）、icon-white-*（备用）
 ├── assets/              # dsh-whale.svg 官方鲸鱼 logo 素材
-├── tools/               # make-icon.js（图标生成）/ selftest-port.js（自测）/ fake-dsh.*（测试桩）
+├── tools/               # make-icon.js（图标生成）/ selftest-port.js（端口自测）/ selftest-startup.js（启动回归自测）/ selftest-startup-preferences.js、selftest-startup-settings-ui.js（启动设置自测）/ selftest-remote-token.js、selftest-remote-token-ui.js（远程 Token 自测）/ fake-dsh.*（测试桩）
 ├── .dsh/skills/         # 项目 skill（agent 自动发现）：dsh-electron-dev（开发工作流）、electron-webcontentsview（多视图编排）
 ├── docs/
 │   ├── DETAILS.md       # 本文件（中文）

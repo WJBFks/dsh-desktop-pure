@@ -28,6 +28,38 @@ contextBridge.exposeInMainWorld('dshTitlebar', {
       }
     });
   },
+  // Native drag regions do not reliably dispatch renderer mouse events. The
+  // main process therefore owns hit testing and sends only this boolean back.
+  onStatusHover(callback) {
+    ipcRenderer.on('titlebar:status-hover', (_event, hovered) => {
+      try {
+        callback(Boolean(hovered));
+      } catch {
+        /* ignore bad payload */
+      }
+    });
+  },
+  onReleaseUpdate(callback) {
+    ipcRenderer.on('titlebar:release-update', (_event, data) => {
+      try {
+        callback(data);
+      } catch {
+        /* ignore bad payload */
+      }
+    });
+  },
+  openUpdateAbout() {
+    ipcRenderer.send('titlebar:open-update-about');
+  },
+  // Content-relative rectangle of the redacted status. This contains no URL
+  // or token; the main process validates that only this shell view can report.
+  reportStatusHitbox(rect) {
+    if (!rect || typeof rect !== 'object') return;
+    ipcRenderer.send('titlebar:status-hitbox', {
+      x: Number(rect.x), y: Number(rect.y),
+      width: Number(rect.width), height: Number(rect.height)
+    });
+  },
   // Click a menu button: open it, or close it if already open.
   toggleMenu(name, relLeft) {
     ipcRenderer.send('menu:toggle', String(name), Number(relLeft) || 0);

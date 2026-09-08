@@ -1,14 +1,20 @@
 {
   "name": "dsh-desktop-pure",
   "productName": "DSH Desktop Pure",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Zero-intrusion pure WebUI desktop shell for DeepSeek Harness (dsh web): read-only, Electron-encapsulated, never modifies DSH source code, resources or config.",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
     "dev": "electron . --verbose",
-    "selftest": "node tools/selftest-port.js"
+    "selftest": "node tools/selftest-port.js",
+    "selftest:windows": "node tools/selftest-windows.js",
+    "selftest:wsl": "node tools/selftest-wsl.js",
+    "selftest:titlebar": "node tools/selftest-titlebar.js",
+    "selftest:changelog": "node tools/selftest-changelog.js",
+    "selftest:release-update": "node tools/selftest-release-update.js",
+    "check:changelog": "node tools/check-changelog.js"
   },
   "keywords": [
     "deepseek",
@@ -40,6 +46,9 @@
     },
     "files": [
       "main.js",
+      "changelog.js",
+      "changelog-format.js",
+      "release-update.js",
       "port-probe.js",
       "titlebar.html",
       "menu.html",

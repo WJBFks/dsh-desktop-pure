@@ -42,6 +42,42 @@ contextBridge.exposeInMainWorld('dshShell', {
   },
   wslInstallNode() {
     ipcRenderer.send('router:wsl-install-node');
+  },
+  onWindowsStatus(cb) {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('windows:status', listener);
+    return () => ipcRenderer.removeListener('windows:status', listener);
+  },
+  onWindowsInstallProgress(cb) {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('windows:install-progress', listener);
+    return () => ipcRenderer.removeListener('windows:install-progress', listener);
+  },
+  onStartupProgress(cb) {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('router:startup-progress', listener);
+    return () => ipcRenderer.removeListener('router:startup-progress', listener);
+  },
+  routerRetry() {
+    ipcRenderer.send('router:retry');
+  },
+  windowsRecheck() {
+    ipcRenderer.send('router:windows-recheck');
+  },
+  windowsRetry() {
+    ipcRenderer.send('router:windows-retry');
+  },
+  windowsInstallNode() {
+    ipcRenderer.send('router:windows-install-node');
+  },
+  windowsInstallDsh() {
+    ipcRenderer.send('router:windows-install-dsh');
+  },
+  windowsConnectAuth(input) {
+    return ipcRenderer.invoke('router:windows-connect-auth', String(input));
+  },
+  windowsForceStart() {
+    return ipcRenderer.invoke('router:windows-force-start');
   }
 });
 
